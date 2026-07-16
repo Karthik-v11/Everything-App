@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  updatePeriodMillis is the 30-minute refresh Requirement 13 asks for. 1800000 ms
+  is also the *floor* Android enforces — a smaller number is silently rounded up,
+  so asking for less would only look like it worked.
+
+  It redraws from what the app last published; it cannot re-read the database (see
+  EverythingWidgetProvider). resizeMode lets one provider serve the small, medium
+  and large placements rather than shipping three near-identical widgets.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_today_tasks"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_today_tasks_description"
+    android:updatePeriodMillis="1800000" />

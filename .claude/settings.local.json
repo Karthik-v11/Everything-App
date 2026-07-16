@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter --version)",
+      "Bash(dart --version)",
+      "Bash(flutter create *)",
+      "Bash(flutter pub *)",
+      "Bash(cd ~/.pub-cache/hosted/pub.dev/go_router-17.3.0 && grep -rn \"StatefulShellRoute.indexedStack\" lib/ | head -5; echo \"=== StatefulShellRoute class ===\"; grep -n -B2 -A30 \"^class StatefulShellRoute\" lib/src/route.dart | head -60)",
+      "Read(//Users/karthik/.pub-cache/hosted/pub.dev/go_router-17.3.0/**)",
+      "Bash(grep -n \"void testLoad\\\\|testLoad\\\\|void load\\\\|Future<void> load\\\\|clean\\(\\)\" ~/.pub-cache/hosted/pub.dev/flutter_dotenv-6.0.1/lib/src/dotenv.dart | head)",
+      "Read(//Users/karthik/.pub-cache/hosted/pub.dev/flutter_dotenv-6.0.1/lib/src/**)",
+      "Bash(flutter analyze *)",
+      "Bash(mkdir -p assets/fonts)",
+      "Bash(curl -sfL -o JetBrainsMono.ttf __TRACKED_VAR__/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf)",
+      "Bash(curl -sfL -o NotoSerif.ttf __TRACKED_VAR__/ofl/notoserif/NotoSerif%5Bwdth%2Cwght%5D.ttf)",
+      "Bash(curl -sfL -o Inter.ttf __TRACKED_VAR__/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf)",
+      "Bash(flutter test *)",
+      "Bash(flutter run *)",
+      "Read(//Users/karthik/.pub-cache/hosted/pub.dev/sqlcipher_flutter_libs-0.7.0\\\\+eol/**)",
+      "Bash(dart run *)"
+    ],
+    "additionalDirectories": [
+      "/Users/karthik/Projects/Personal/Everything",
+      "/tmp/claude-501/-Users-karthik-Projects-Personal-Everything/8093ff5b-1180-48f0-b253-2e2a19adb0fb/scratchpad"
+    ]
+  }
+}

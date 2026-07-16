@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget strings.
+
+  These live in resources rather than as literals in the layouts because a widget
+  is drawn by the launcher with no Flutter engine, so the app's own strings are
+  unreachable from here. Note this is also the reason the app's missing
+  localization (see SettingsPage) would have to be solved twice: once in Dart and
+  once here, in the platform's own resource system.
+-->
+<resources>
+    <string name="widget_today_tasks_label">Everything · Today</string>
+    <string name="widget_finance_label">Everything · Spending</string>
+    <string name="widget_quick_add_label">Everything · Quick add</string>
+
+    <string name="widget_today_tasks_description">Today\'s tasks and what\'s overdue.</string>
+    <string name="widget_finance_description">What you\'ve spent this month.</string>
+    <string name="widget_quick_add_description">Add a task or expense, ask, or search.</string>
+
+    <string name="widget_add">+</string>
+    <string name="widget_task">Task</string>
+    <string name="widget_expense">Expense</string>
+    <string name="widget_ask">Ask</string>
+    <string name="widget_search">Search</string>
+
+    <string name="widget_all_clear">Nothing due. Tap + to add something.</string>
+
+    <!-- Content descriptions: a widget's controls are as reachable to a screen
+         reader as any other, and an unlabelled "+" reads as "button". -->
+    <string name="widget_task_status">Task status</string>
+    <string name="widget_add_task">Add a task</string>
+    <string name="widget_add_expense">Add an expense</string>
+</resources>

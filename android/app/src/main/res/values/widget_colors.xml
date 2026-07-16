@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The widget palette, matching the app's theme (docs/plan.md §4).
+
+  These are duplicated from Dart's AppColors rather than read from it, because a
+  widget draws in the launcher's process with no Flutter engine running and no way
+  to ask the app anything. That makes them the one place the design language is
+  restated, so they are named after their role in the app's theme and kept in step
+  by hand — the alternative is a widget that quietly stops matching the app after a
+  theme change.
+
+  The app's accent is user-configurable (ThemeBloc), and this is deliberately NOT:
+  the widget would have to be republished on every accent change, and an amber that
+  is right for 99% of installs beats a moving target on the home screen.
+-->
+<resources>
+    <color name="widget_background">#1C1C1C</color>
+    <color name="widget_surface">#0F0F0F</color>
+    <color name="widget_accent">#FFB300</color>
+    <color name="widget_text">#F5F5F5</color>
+    <color name="widget_text_dim">#9E9E9E</color>
+    <color name="widget_overdue">#E53935</color>
+</resources>

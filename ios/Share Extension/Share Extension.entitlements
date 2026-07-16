@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The container this extension hands shared items to, and the app reads
+	     them from. It must be byte-identical to Runner.entitlements and to
+	     HomeWidgetService.appGroupId in Dart. A mismatch does not error anywhere:
+	     the share simply vanishes. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.karthik.everythingApp</string>
+	</array>
+</dict>
+</plist>

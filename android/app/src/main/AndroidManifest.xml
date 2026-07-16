@@ -1,0 +1,163 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Notifications (Requirement 5).
+
+         POST_NOTIFICATIONS is the Android 13+ runtime permission; it is requested
+         from the Settings screen, never silently on first launch.
+
+         SCHEDULE_EXACT_ALARM is what makes a reminder arrive at the minute the
+         user asked for. On Android 14+ the user can refuse it, and asking the
+         system for an exact alarm without it *throws*, so NotificationService
+         checks `canScheduleExactNotifications()` first and falls back to an
+         inexact alarm rather than failing to schedule at all.
+
+         RECEIVE_BOOT_COMPLETED lets the receiver below re-arm the queue after a
+         reboot. Android drops every pending alarm when the device restarts, so
+         without it every reminder set before a reboot would silently never
+         arrive. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Biometric unlock for the app lock and the vault (Requirements 1.2, 9.2).
+         Without this local_auth cannot enumerate enrolled biometrics, so the
+         fingerprint / face prompt never appears. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <application
+        android:label="Everything"
+        android:name="${applicationName}"
+        android:icon="@mipmap/launcher_icon">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- Content shared into the app from any other app (Requirement 12).
+
+                 `*/*` rather than an enumerated list of MIME types: the chooser
+                 decides what a share can become by looking at it (see
+                 SharedItem.fromText), and a filter that named only text/* and
+                 image/* would leave the app missing from the share sheet for a
+                 PDF — which is exactly the case ShareDestination.projectFile
+                 exists to serve.
+
+                 SEND_MULTIPLE is a separate action, not a variant of SEND, and
+                 omitting it is why "share 6 photos" silently does nothing in apps
+                 that only declare the first.
+
+                 This relies on `launchMode="singleTop"` above: without it a share
+                 into an already-running app starts a *second* MainActivity, and
+                 the running Dart isolate — which holds the stream ShareBloc is
+                 listening to — never hears about it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+        <!-- Delivers a scheduled notification when its alarm fires. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+
+        <!-- Re-arms every pending notification after a reboot or an app update,
+             both of which clear the system alarm queue. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Home screen widgets (Requirement 13).
+
+             Each is an AppWidgetProvider — a BroadcastReceiver — drawn by the
+             launcher's process, with no Flutter engine and no access to the
+             encrypted database. They render what the app published into the
+             shared container through `home_widget`; see HomeWidgetService for
+             what is deliberately never put there.
+
+             `exported="false"`: the only thing that needs to send these the
+             APPWIDGET_UPDATE broadcast is the system and this app. There is
+             nothing here another app should be able to poke. -->
+        <receiver
+            android:name=".TodayTasksWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_today_tasks_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_today_tasks_info" />
+        </receiver>
+
+        <receiver
+            android:name=".FinanceWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_finance_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_finance_info" />
+        </receiver>
+
+        <receiver
+            android:name=".QuickAddWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_quick_add_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_add_info" />
+        </receiver>
+
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

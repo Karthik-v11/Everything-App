@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Read by the plugin to find the App Group both processes share. It is a
+	     build setting rather than a literal so that the id is stated once, in the
+	     Xcode project, and cannot drift between this target and Runner — a
+	     mismatch here does not error, it just silently delivers nothing. -->
+	<key>AppGroupId</key>
+	<string>$(CUSTOM_GROUP_ID)</string>
+
+	<!-- CFBundleIdentifier is not optional here, and its absence does not read as
+	     one. Without it the built .appex has no identifier at all, and the only
+	     symptom is Xcode refusing to embed it: "Embedded binary's bundle
+	     identifier is not prefixed with the parent app's bundle identifier" —
+	     which points at the prefix, when the real problem is that there is no
+	     identifier to prefix. -->
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Everything</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<key>PHSupportedMediaTypes</key>
+			<array>
+				<string>Video</string>
+				<string>Image</string>
+			</array>
+			<!-- What this app is offered for in the iOS share sheet. It mirrors
+			     the Android `*/*` intent filters: the chooser decides what a
+			     share can become by looking at it, so the extension accepts
+			     everything the chooser has a destination for.
+
+			     The counts are the ones that matter. Text and a web URL are the
+			     common case; images and movies allow 100 because a multi-select
+			     share of photos is one gesture and ShareBloc files them all to
+			     one project. A file is capped at 1 — iOS reports arbitrary
+			     documents through this key, and there is no useful "attach these
+			     40 PDFs" flow to justify the ambiguity. -->
+			<key>NSExtensionActivationRule</key>
+			<dict>
+				<key>NSExtensionActivationSupportsText</key>
+				<true/>
+				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+				<integer>1</integer>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>100</integer>
+				<key>NSExtensionActivationSupportsMovieWithMaxCount</key>
+				<integer>100</integer>
+				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
+				<integer>1</integer>
+			</dict>
+		</dict>
+		<key>NSExtensionMainStoryboard</key>
+		<string>MainInterface</string>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+	</dict>
+</dict>
+</plist>

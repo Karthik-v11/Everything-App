@@ -1,0 +1,236 @@
+name: everything_app
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+# The following defines the version and build number for your application.
+# A version number is three numbers separated by dots, like 1.2.43
+# followed by an optional build number separated by a +.
+# Both the version and the builder number may be overridden in flutter
+# build by specifying --build-name and --build-number, respectively.
+# In Android, build-name is used as versionName while build-number used as versionCode.
+# Read more about Android versioning at https://developer.android.com/studio/publish/versioning
+# In iOS, build-name is used as CFBundleShortVersionString while build-number is used as CFBundleVersion.
+# Read more about iOS versioning at
+# https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
+# In Windows, build-name is used as the major, minor, and patch parts
+# of the product and file versions while build-number is used as the build suffix.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+# Build the bundled SQLite as SQLCipher, which is what gives the database
+# AES-256 encryption at rest (Requirement 23.1).
+#
+# This replaces the `sqlcipher_flutter_libs` package, which as of its 0.7.0
+# release is an empty no-op: sqlite3 3.x moved native library selection into
+# build hooks. Depending on that package would compile fine and silently give us
+# an UNENCRYPTED database, because plain SQLite ignores an unknown `PRAGMA key`
+# rather than erroring. `AppDatabase._verifyKeyed` checks `PRAGMA cipher_version`
+# at open time to make that failure loud rather than silent.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlcipher
+
+# Dependencies specify other packages that your package needs in order to work.
+# To automatically upgrade your package dependencies to the latest versions
+# consider running `flutter pub upgrade --major-versions`. Alternatively,
+# dependencies can be manually updated by changing the version numbers below to
+# the latest version available on pub.dev. To see which dependencies have newer
+# versions available, run `flutter pub outdated`.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # The following adds the Cupertino Icons font to your application.
+  # Use with the CupertinoIcons class for iOS style icons.
+  cupertino_icons: ^1.0.8
+  flutter_bloc: ^9.1.1
+  hydrated_bloc: ^11.0.0
+  equatable: ^2.1.0
+  go_router: ^17.3.0
+  dio: ^5.10.0
+  flutter_dotenv: ^6.0.1
+  connectivity_plus: ^7.2.0
+  path_provider: ^2.1.6
+  intl: ^0.20.3
+  package_info_plus: ^10.2.0
+  drift: ^2.34.1
+  drift_flutter: ^0.3.1
+  flutter_secure_storage: ^10.3.1
+  local_auth: ^3.0.2
+  crypto: ^3.0.7
+  uuid: ^4.5.3
+  sqlite3: ^3.4.0
+
+  # Item-level AES-256-GCM for the vault, on top of the already-encrypted
+  # database (Requirement 9.1). `crypto` hashes but does not encrypt, so this is
+  # the symmetric cipher rather than a competing dependency.
+  encrypt: ^5.0.3
+
+  # The Tasks "By date" list scrolls to a date *section* and reports which section
+  # is on screen. A plain ListView can only scroll to a pixel offset, which would
+  # require measuring every card up front.
+  scrollable_positioned_list: ^0.3.8
+  flutter_local_notifications: ^22.0.1
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.0
+  fl_chart: ^1.2.0
+
+  # A news headline opens in the device's browser (Requirement 3.10), not in a
+  # webview: the article belongs to its publisher, and wrapping it in this app's
+  # chrome would make the app look answerable for it.
+  url_launcher: ^6.3.2
+
+  # The Document Writer renders its Markdown preview (Requirement 11). The
+  # original `flutter_markdown` is discontinued; this is its maintained fork.
+  flutter_markdown_plus: ^1.0.3
+
+  # Document export writes a temporary .md/.txt and opens the OS share sheet
+  # (Requirement 11.4). Encrypted backups are shared out the same way, so a user
+  # can hand one to their cloud storage app without this app needing OAuth
+  # (Requirement 22).
+  share_plus: ^13.2.0
+
+  # Document → PDF export (Requirement 11.4). `printing` shares the rendered bytes
+  # through the OS sheet; `pdf` builds the document. One integration for both, per
+  # the Phase 11 note.
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  # Content shared into the app from any other app (Requirement 12). Delivers both
+  # the intent that launched the app cold and a stream of intents that arrive while
+  # it is already running — the two are separate APIs, and handling only the first
+  # is why a share into a warm app silently does nothing.
+  receive_sharing_intent: ^1.9.0
+
+  # Home screen widgets (Requirement 13). This package is only the data channel and
+  # the refresh trigger — it writes key/values the native side reads. The widgets
+  # themselves are Kotlin `AppWidgetProvider` + Swift `WidgetKit`; there is no
+  # Flutter rendering on a home screen.
+  home_widget: ^0.9.3
+
+  # On-device LLM (Phase 13, Requirement 16). Scoped deliberately: the model backs
+  # only `summarizeDocument` and `answerQuestion` — the two prose paths where the
+  # rule-based engine has an admitted ceiling — and never the parsers, which stay
+  # instant, deterministic and offline. See `ModelBackedAiRepository` for why.
+  #
+  # `flutter_gemma_litertlm` is the inference engine for `.litertlm` models and is
+  # a separate package: the core is engine-agnostic and registers engines opt-in,
+  # so depending on the core alone compiles and then finds no engine at runtime.
+  # It versions independently of the core — the core is 1.3.x, the engine 1.1.x —
+  # so the two constraints deliberately do not match.
+  #
+  # This is what forced iOS 16.0 (`ios/Podfile`) — MediaPipe/LiteRT-LM require it
+  # regardless of backend, and there is no version of this that keeps 14.0.
+  flutter_gemma: ^1.3.0
+  flutter_gemma_litertlm: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # The "flutter_lints" package below contains a set of recommended lints to
+  # encourage good coding practices. The lint set provided by the package is
+  # activated in the `analysis_options.yaml` file located at the root of your
+  # package. See that file for information about deactivating specific lint
+  # rules and activating additional ones.
+  flutter_lints: ^6.0.0
+  bloc_test: ^10.0.0
+  mockito: ^5.6.4
+  build_runner: ^2.15.1
+  drift_dev: ^2.34.0
+  flutter_launcher_icons: ^0.14.4
+
+# Launcher icons are generated from assets/logos/ by:
+#   dart run flutter_launcher_icons
+#
+# The source glyph is the asterisk in assets/logos/{white,black}_logo.png. Every
+# variant below is derived from the white glyph, because the icon sits on the
+# app's dark surface (AppColors.darkBackground, #0F0F0F) on both platforms.
+flutter_launcher_icons:
+  # Base icon — white glyph on the opaque dark surface. Used for the Android
+  # legacy/round icons and as the default for any platform without an override.
+  image_path: "assets/logos/icon.png"
+
+  android: "launcher_icon"
+  image_path_android: "assets/logos/icon.png"
+  min_sdk_android: 24
+
+  # Adaptive icon: the system masks the foreground to a 66% safe zone, so the
+  # glyph in icon_foreground.png is pre-sized to 40% of the canvas and the inset
+  # is left at 0 rather than being applied twice.
+  adaptive_icon_background: "#0F0F0F"
+  adaptive_icon_foreground: "assets/logos/icon_foreground.png"
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: "assets/logos/icon_monochrome.png"
+
+  ios: true
+  image_path_ios: "assets/logos/icon.png"
+  # iOS rejects icons with an alpha channel; the flattened background matches the
+  # dark surface the glyph was composed against.
+  remove_alpha_ios: true
+  background_color_ios: "#0F0F0F"
+  # iOS 18+ appearance variants. Apple wants the dark icon transparent and the
+  # tinted icon grayscale — the white glyph desaturates to itself.
+  image_path_ios_dark_transparent: "assets/logos/icon_ios_dark.png"
+  image_path_ios_tinted_grayscale: "assets/logos/icon_ios_tinted.png"
+  desaturate_tinted_to_grayscale_ios: true
+
+# For information on the generic Dart part of this file, see the
+# following page: https://dart.dev/tools/pub/pubspec
+
+# The following section is specific to Flutter packages.
+flutter:
+
+  # The following line ensures that the Material Icons font is
+  # included with your application, so that you can use the icons in
+  # the material Icons class.
+  uses-material-design: true
+
+  # The .env file must be bundled as an asset for flutter_dotenv to read it.
+  assets:
+    - .env
+
+  # Fonts are bundled, not fetched at runtime. The app is offline-first, so a
+  # first launch with no connection must still render in the right typeface —
+  # which rules out the google_fonts package's download-on-demand behaviour.
+  # All three are variable fonts, so one file covers every weight.
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono.ttf
+    - family: NotoSerif
+      fonts:
+        - asset: assets/fonts/NotoSerif.ttf
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+
+  # An image asset can refer to one or more resolution-specific "variants", see
+  # https://flutter.dev/to/resolution-aware-images
+
+  # For details regarding adding assets from package dependencies, see
+  # https://flutter.dev/to/asset-from-package
+
+  # To add custom fonts to your application, add a fonts section here,
+  # in this "flutter" section. Each entry in this list should have a
+  # "family" key with the font family name, and a "fonts" key with a
+  # list giving the asset and other descriptors for the font. For
+  # example:
+  # fonts:
+  #   - family: Schyler
+  #     fonts:
+  #       - asset: fonts/Schyler-Regular.ttf
+  #       - asset: fonts/Schyler-Italic.ttf
+  #         style: italic
+  #   - family: Trajan Pro
+  #     fonts:
+  #       - asset: fonts/TrajanPro.ttf
+  #       - asset: fonts/TrajanPro_Bold.ttf
+  #         weight: 700
+  #
+  # For details regarding fonts from package dependencies,
+  # see https://flutter.dev/to/font-from-package
