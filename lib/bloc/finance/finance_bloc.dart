@@ -15,31 +15,16 @@ part 'finance_state.dart';
 
 /// [FinanceBloc] owns the Finance module (Requirements 12, 13).
 ///
-/// Style A: it holds the transactions, the accounts, the selected month and the
-/// filters.
+/// It subscribes once to the DAO stream and never re-reads: every summary,
+/// chart, balance and filter is derived in memory from that one list, so nothing
+/// keeps a copy that can disagree with the database.
 ///
-/// It subscribes once to the DAO stream and never re-reads. Every summary,
-/// chart, balance and filter is derived in memory from that one list, so a
-/// transaction saved in the form refreshes the donut, the trend, the account
-/// balances and the budget bar with no reload event anywhere — and none of them
-/// can disagree with the database, because none of them has its own copy.
+/// It streams *every* transaction, not the selected month's — the trend chart is
+/// six months wide, the summary one month, and search spans everything; one
+/// query serves all three.
 ///
-/// Streaming *every* transaction rather than the selected month's is deliberate:
-/// the trend chart is six months wide, the summary is one month, and search spans
-/// everything. One query serves all three; three queries would have to be kept in
-/// step by hand.
-///
-/// It does not own the budget. [BudgetBloc] does, and this bloc pushes the
-/// month's expenses to it with [UpdateSpendEvent] on every change (CLAUDE.md
-/// §3.6).
-///
-/// Events:
-/// 1) [WatchFinanceEvent] — subscribe to transactions and accounts. Fired once.
-/// 2) [SelectMonthEvent] — the month every summary is about.
-/// 3) [FilterTransactionsEvent] — type, category and account narrowing.
-/// 4) [SearchTransactionsEvent] — in-module search (Requirement 12.4).
-/// 5) [DeleteTransactionEvent] — remove a transaction.
-/// 6) [SaveAccountEvent] / [RemoveAccountEvent] — account management.
+/// [BudgetBloc] owns the budget; this bloc pushes the month's expenses to it via
+/// [UpdateSpendEvent] on every change (CLAUDE.md §3.6).
 class FinanceBloc extends Bloc<FinanceEvent, FinanceState> {
   FinanceBloc({
     required this.repository,
@@ -63,12 +48,10 @@ class FinanceBloc extends Bloc<FinanceEvent, FinanceState> {
 
   /// The accounts subscription.
   ///
-  /// `emit.forEach` can only hold one stream open for the life of a handler, and
-  /// the module has two that never close. Transactions take it — they are what
-  /// every derived figure is built from — and the accounts stream is subscribed
-  /// separately, re-entering the bloc as [AccountsUpdatedEvent] so that its
-  /// emission still goes through an event handler rather than round an emitter
-  /// that has since completed.
+  /// `emit.forEach` holds one stream per handler and the module has two that
+  /// never close, so transactions take the emitter and accounts are subscribed
+  /// manually, re-entering as [AccountsUpdatedEvent] rather than emitting round a
+  /// completed emitter.
   StreamSubscription<List<Account>>? _accounts;
 
   FutureOr<void> _onWatchFinanceEvent(
@@ -90,10 +73,9 @@ class FinanceBloc extends Bloc<FinanceEvent, FinanceState> {
     await emit.forEach<List<Transaction>>(
       repository.watchTransactions(),
       onData: (transactions) {
-        // Every write in the app comes back through this stream, so this is the
-        // one place that has to tell the budget what has been spent — including
-        // for writes from code that does not exist yet. onData cannot await, and
-        // does not need to: the dispatch is synchronous.
+        // Every write comes back through this stream, so this is the one place
+        // that tells the budget what has been spent. Legal in `onData` because
+        // the dispatch is synchronous.
         _publishSpend(transactions, state.selectedMonth);
 
         return state.copyWith(
@@ -213,11 +195,8 @@ class FinanceBloc extends Bloc<FinanceEvent, FinanceState> {
   }
 
   /// [_publishSpend] hands the month's expenses to [BudgetBloc], which owns the
-  /// limits and the alerts.
-  ///
-  /// Called on every change to the transactions and on every change of month, so
-  /// the budget bar and the alerts are re-evaluated against exactly what the
-  /// database holds — including writes from code that does not exist yet.
+  /// limits and the alerts. Called on every transaction change and every month
+  /// change, so the alerts always reflect the database.
   void _publishSpend(List<Transaction> transactions, DateTime month) {
     final spend = FinanceState.spendFor(transactions, month);
 

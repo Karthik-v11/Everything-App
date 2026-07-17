@@ -13,33 +13,16 @@ part 'budget_state.dart';
 
 /// [BudgetBloc] owns the monthly budget and its alerts (Requirement 14).
 ///
-/// Style A: it holds the budgets, the month being tracked, and what has been
-/// spent against it.
+/// [FinanceBloc] owns the transactions and pushes the month's totals here via
+/// [UpdateSpendEvent] — event dispatch, never a cross-bloc state read
+/// (CLAUDE.md §3.6).
 ///
-/// It is deliberately **not** the owner of the transactions. [FinanceBloc] holds
-/// those, and pushes the month's totals here with [UpdateSpendEvent] — an event
-/// dispatch, never a cross-bloc state read (CLAUDE.md §3.6). The same shape as
-/// Settings → Tasks in Phase 4, and for the same reason: neither bloc alone knows
-/// enough to decide anything. Spending without a limit is a number, a limit
-/// without spending is a wish.
-///
-/// The alerts (Requirements 14.3–14.5) are delivered from here rather than
-/// scheduled, because unlike every notification in Phase 4 they are about
-/// something that has *already* happened: the transaction the user just saved is
-/// what made them true. There is no future moment to plan them into, so
-/// [NotificationPlan] does not know about them and reconciliation never sees them.
-///
-/// That leaves this bloc holding the one thing the OS queue cannot: whether an
-/// alert has already been delivered. [BudgetState.announced] is that memory, and
-/// it is hydrated — without it, every write in a month already over budget would
-/// fire the same notification again.
-///
-/// Events:
-/// 1) [WatchBudgetsEvent] — subscribe to the budget stream. Fired once at start.
-/// 2) [SetBudgetEvent] — set a month's limits (Requirements 14.1, 14.2).
-/// 3) [UpdateSpendEvent] — the month's expenses, pushed by [FinanceBloc].
-/// 4) [ConfigureBudgetAlertsEvent] — the notification settings, pushed by
-///    [SettingsBloc].
+/// Alerts (Requirements 14.3–14.5) are delivered immediately rather than
+/// scheduled: they describe something that has already happened, so
+/// [NotificationPlan] does not know about them and reconciliation never sees
+/// them. [BudgetState.announced] is hydrated to track what was already
+/// delivered — without it, every write in a month already over budget would
+/// re-fire the same notification.
 class BudgetBloc extends HydratedBloc<BudgetEvent, BudgetState> {
   BudgetBloc({
     required this.repository,
@@ -134,24 +117,17 @@ class BudgetBloc extends HydratedBloc<BudgetEvent, BudgetState> {
     await _announce(emit);
   }
 
-  /// [_announce] delivers every alert that has escalated since the last time it
-  /// was delivered, and forgets the ones that no longer hold.
+  /// [_announce] delivers every alert that has escalated since the last delivery
+  /// (80% then 100% crossings only — never re-announced while already over), and
+  /// forgets alerts that no longer hold so they can fire again later.
   ///
-  /// Escalation is the whole rule. An alert is news the first time a budget
-  /// crosses 80%, and again when it crosses 100% — but a fifth transaction in a
-  /// month that was already over budget is not news, and re-announcing it is how
-  /// an app gets its notifications switched off. Equally, a budget the user then
-  /// *raises* back out of trouble drops out of [BudgetState.announced], so if
-  /// spending climbs into it again it is announced again.
-  ///
-  /// [budget] overrides the one in state for the case where the stream has not yet
-  /// delivered a budget that was saved a moment ago.
+  /// [budget] overrides the one in state when the stream has not yet delivered a
+  /// budget that was saved a moment ago.
   Future<void> _announce(Emitter<BudgetState> emit, {Budget? budget}) async {
     final settings = state.notifications;
 
-    // Nothing is delivered until Settings has reported the user's configuration —
-    // the same guard as TasksBloc, and for the same reason: scheduling against
-    // the defaults would notify a user who had turned notifications off.
+    // Nothing is delivered until Settings reports the user's configuration:
+    // falling back to defaults would notify a user who turned notifications off.
     if (settings == null) return;
 
     final status = budget == null
@@ -184,10 +160,8 @@ class BudgetBloc extends HydratedBloc<BudgetEvent, BudgetState> {
       );
     }
 
-    // Every key for the tracked month is replaced by what the evaluation just
-    // found — an alert that no longer holds is *forgotten*, so that spending
-    // climbing back into it later is announced again. Other months are carried
-    // over untouched: this evaluation says nothing about a month it was not about.
+    // Replace only the tracked month's keys; other months are carried over
+    // untouched since this evaluation says nothing about them.
     final period = '${state.year}-${state.month.toString().padLeft(2, '0')}';
 
     emit(

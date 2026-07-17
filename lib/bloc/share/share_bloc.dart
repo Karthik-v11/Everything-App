@@ -20,23 +20,9 @@ part 'share_state.dart';
 /// [ShareBloc] receives content shared into the app and files it
 /// (Requirement 12).
 ///
-/// It is deliberately built on the same principle as [AiBloc]: the share layer
-/// **routes but never persists**. A shared link becomes a [Bookmark] through
-/// [BookmarksRepository], a note becomes a [Document] through
-/// [DocumentsRepository], a file becomes an [Attachment] through
-/// [AttachmentsRepository] — the same code, and the same validation, the in-app
-/// sheets use. So a bookmark saved from Chrome's share sheet is identical to one
-/// typed into the Library, is enriched by the same background metadata fetch, and
-/// reaches every screen through the same DAO stream.
-///
-/// Style A: it holds the pending share across the chooser being opened, filled in
-/// and dismissed, which is more than one focused action.
-///
-/// Events:
-/// 1) [WatchSharesEvent] — take the share that launched the app, then listen for
-///    the ones that arrive while it is running. Fired once, at launch.
-/// 2) [ShareDestinationChosen] — file the pending share where the user said.
-/// 3) [ShareDismissed] — the user closed the chooser without filing anything.
+/// The share layer routes but never persists: it files through the same
+/// repositories the in-app sheets use, so a share and an in-app entry are
+/// identical downstream (same validation, enrichment and DAO streams).
 class ShareBloc extends Bloc<ShareEvent, ShareState> {
   ShareBloc({
     required this.repository,
@@ -59,12 +45,9 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
 
   static const Uuid _uuid = Uuid();
 
-  /// [_onWatchSharesEvent] wires both of the plugin's paths.
-  ///
-  /// The launch share is read once; the stream then covers every share that
-  /// arrives while the app is alive. Both funnel into [SharesReceivedEvent] so
-  /// there is exactly one place a share becomes state, rather than two that can
-  /// drift apart.
+  /// Wires both of the plugin's paths: the launch share (read once) and the
+  /// stream. Both funnel into [SharesReceivedEvent] so there is exactly one
+  /// place a share becomes state.
   FutureOr<void> _onWatchSharesEvent(
     WatchSharesEvent event,
     Emitter<ShareState> emit,
@@ -92,11 +75,8 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     }
   }
 
-  /// [_onSharesReceivedEvent] parks the share and opens the chooser.
-  ///
-  /// Multiple items are kept together and filed to one destination: a share of
-  /// six photos is one gesture with one intent behind it, and asking six times
-  /// would be a worse app than asking once.
+  /// Parks the share and opens the chooser. Multiple items are kept together
+  /// and filed to one destination — a multi-select share is one intent.
   FutureOr<void> _onSharesReceivedEvent(
     SharesReceivedEvent event,
     Emitter<ShareState> emit,
@@ -127,8 +107,7 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
         projectId: event.projectId,
       );
 
-      // Told either way: the share is over, and a replay on the next cold launch
-      // would offer the user a link they already filed.
+      // Reset either way, or the next cold launch replays a share already filed.
       await repository.reset();
 
       emit(
@@ -169,12 +148,9 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     );
   }
 
-  /// [_file] writes every item to [destination], returning the confirmation to
-  /// show or null if nothing could be saved.
-  ///
-  /// A partial success still reports success: if five of six photos attach, the
-  /// five are real and telling the user the share failed would be a lie about the
-  /// five they can see.
+  /// Writes every item to [destination], returning the confirmation to show or
+  /// null if nothing could be saved. Partial success still reports success —
+  /// the items that did save are real.
   Future<String?> _file({
     required List<SharedItem> items,
     required ShareDestination destination,
@@ -201,8 +177,8 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
     return 'Saved $saved $noun.';
   }
 
-  /// [_saveBookmark] files a link exactly as the Library's own sheet does —
-  /// derived title and source now, background enrichment after.
+  /// Files a link exactly as the Library's own sheet does — derived title and
+  /// source now, background enrichment after.
   Future<bool> _saveBookmark(SharedItem item) async {
     final url = UrlMetadata.normalize(item.value);
     final metadata = UrlMetadata.read(url);
@@ -221,19 +197,15 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
 
     if (!response.success) return false;
 
-    // Best-effort, exactly as in the Library: the bookmark is already saved and
-    // already looks right, so a failure here is not the user's problem and is
-    // deliberately not awaited into the result.
+    // Best-effort: the bookmark is already saved, so enrichment failure must not
+    // fail the result.
     unawaited(bookmarksRepository.enrich(id));
 
     return true;
   }
 
-  /// [_saveTask] makes a to-do out of a share.
-  ///
-  /// The shared text becomes the title and a shared link becomes the notes, with
-  /// its derived title as the task name — "Read Why Flutter Scales" is a task, and
-  /// a raw URL as a task title is a to-do list that is unreadable at a glance.
+  /// Makes a to-do out of a share. A shared link goes into the notes and its
+  /// derived title becomes the task name — a raw URL as a title is unreadable.
   Future<bool> _saveTask(SharedItem item) async {
     final now = DateTime.now();
 
@@ -292,11 +264,8 @@ class ShareBloc extends Bloc<ShareEvent, ShareState> {
 
   static const int _titleLimit = 60;
 
-  /// [_titleFrom] is a one-line name for a block of shared text.
-  ///
-  /// The first line if there is one and it is short enough, because a shared
-  /// quote's first line is almost always its subject; otherwise a truncation. The
-  /// full text is kept in the body either way, so nothing is lost to this.
+  /// One-line name for a block of shared text: the first line when short
+  /// enough, else a truncation. The full text is kept in the body either way.
   static String _titleFrom(String text) {
     final firstLine = text.trim().split('\n').first.trim();
     if (firstLine.isEmpty) return 'Shared note';

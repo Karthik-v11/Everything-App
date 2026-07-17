@@ -6,25 +6,19 @@ import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 /// (Requirement 12.1).
 ///
 /// It maps the plugin's `SharedMediaFile` into the app's own [SharedItem], so
-/// nothing above this layer imports the plugin and the chooser sheet is testable
-/// with no platform channel at all.
+/// nothing above this layer imports the plugin.
 ///
-/// **Two APIs, not one, and both are required.** The plugin reports a share that
-/// *launched* the app ([initial]) separately from shares that arrive while it is
-/// already running ([stream]). They are different code paths in the plugin and in
-/// the OS, and handling only the first is the classic bug here: sharing into a
-/// cold app works, the user shares a second link ten seconds later, and nothing
-/// happens at all.
+/// **Both APIs are required.** A share that launched the app ([initial]) and one
+/// arriving while it runs ([stream]) are different code paths in the plugin and
+/// the OS; handling only the first makes a cold-launch share work and every
+/// subsequent one do nothing.
 class ShareService {
   ShareService({required this.plugin});
 
   final ReceiveSharingIntent plugin;
 
-  /// [initial] is the share that launched the app, if the app was launched by
-  /// one.
-  ///
-  /// Returns success with an empty list on a normal launch — no share is the
-  /// overwhelmingly common case, not a failure.
+  /// [initial] is the share that launched the app, if one did. A normal launch
+  /// returns success with an empty list, not a failure.
   Future<JsonResponse> initial() async {
     try {
       final media = await plugin.getInitialMedia();
@@ -43,25 +37,21 @@ class ShareService {
   /// [stream] is every share that arrives while the app is already running.
   Stream<List<SharedItem>> stream() => plugin.getMediaStream().map(_map);
 
-  /// [reset] tells the plugin the share has been dealt with.
-  ///
-  /// Without it the same share is replayed by `getInitialMedia` on the next cold
-  /// launch, so a user who shared a link on Monday is offered it again on
-  /// Tuesday.
+  /// [reset] tells the plugin the share has been dealt with. Without it,
+  /// `getInitialMedia` replays the same share on the next cold launch.
   Future<void> reset() async => plugin.reset();
 
   /// [_map] converts the plugin's types into the app's.
   ///
-  /// `SharedMediaFile.path` carries the *text* for text and URL shares, not a
-  /// path — a plugin quirk, and the reason this mapping is a named boundary
-  /// rather than a `.map()` at the call site.
+  /// Plugin quirk: `SharedMediaFile.path` carries the *text* for text and URL
+  /// shares, not a path.
   static List<SharedItem> _map(List<SharedMediaFile> media) => [
         for (final file in media) _mapOne(file),
       ];
 
   static SharedItem _mapOne(SharedMediaFile file) => switch (file.type) {
-        // Both arrive as a string in `path`. Which of the two it *is* is decided
-        // by looking at it, because Android sends a URL shared from a browser as
+        // Both arrive as a string in `path`, and which one it is has to be
+        // decided by inspection: Android sends a URL shared from a browser as
         // `text/plain` — see [SharedItem.fromText].
         SharedMediaType.text || SharedMediaType.url => SharedItem.fromText(
             file.path,

@@ -3,15 +3,10 @@ import 'package:everything_app/data/repositories/text_engine.dart';
 import 'package:everything_app/data/services/gemini_service.dart';
 
 /// [GeminiRepository] is the assistant's cloud engine behind [TextEngine].
-///
-/// It has no download, no load, and no unload — the three things
-/// `GemmaRepository` needed and the reason the decorator now depends on the
-/// narrower [TextEngine] instead. There is nothing to install and nothing to
-/// evict: a key either exists or it does not.
+/// It has no download, load or unload: a key either exists or it does not.
 abstract class GeminiRepository implements TextEngine {
-  /// [isConfigured] is whether a key exists. Identical to [isLoaded] here, and
-  /// kept separate because the settings screen asks a different question with
-  /// it — "can this be used at all" rather than "can it answer now" — and the
+  /// [isConfigured] is whether a key exists — "can this be used at all", the
+  /// question the settings screen asks. Identical to [isLoaded] here, but the
   /// two come apart for any engine with a lifecycle.
   bool get isConfigured;
 }

@@ -21,8 +21,8 @@ import 'package:uuid/uuid.dart';
 /// The root navigator is used so the sheet covers the bottom navigation and the
 /// AI dock rather than being clipped into the shell's body.
 ///
-/// [projectId] pre-files a new task under a project — passed by the project screen's
-/// "Add", so a task created there actually lands in the project it was added from.
+/// [projectId] pre-files a new task under a project, passed by the project
+/// screen's "Add".
 Future<void> showTaskSheet(
   BuildContext context, {
   Task? task,
@@ -33,21 +33,22 @@ Future<void> showTaskSheet(
     useRootNavigator: true,
     isScrollControlled: true,
     showDragHandle: true,
+    // Capped below full height so the list stays visible behind the sheet.
+    constraints: BoxConstraints(
+      maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+    ),
     builder: (_) => TaskSheet(task: task, projectId: projectId),
   );
 }
 
 /// [TaskSheet] creates or edits a task in one line.
 ///
-/// Adding a task is a two-second job, so the sheet opens with the caret already
-/// in the only field that is required. Everything else is either written inline —
-/// `#work`, `@errands`, `p1`, `tomorrow 5pm` (see [QuickTaskParams]) — or set from
-/// the single row of pills under the field. Notes, subtasks and delete sit behind
-/// "More", so nothing that is rarely used costs a scroll.
+/// Fields are written inline — `#work`, `@errands`, `p1`, `tomorrow 5pm` (see
+/// [QuickTaskParams]) — or set from the pill row. Notes, subtasks and delete sit
+/// behind "More".
 ///
-/// The inline shorthand is only parsed when creating. On an edit the title is
-/// whatever the user already wrote, and re-reading `Call mum monday` as a due date
-/// would quietly eat a word out of it.
+/// The inline shorthand is parsed only when creating: re-parsing an edit would
+/// eat words out of a title the user already wrote (`Call mum monday`).
 class TaskSheet extends StatefulWidget {
   const TaskSheet({this.task, this.projectId, super.key});
 
@@ -76,9 +77,7 @@ class _TaskSheetState extends State<TaskSheet> {
   /// The projects a task can be filed under, read once like the categories.
   late final List<Project> _projects;
 
-  /// The chosen project. Unlike the other fields it is not parsed from the title,
-  /// so it is a plain value: the initial pick ([TaskSheet.projectId] on create, the
-  /// task's own on edit) unless the pill changes it.
+  /// The chosen project. Not parsed from the title, so it needs no `…Set` flag.
   String? _projectId;
 
   /// The due date a new task falls back to: the day the calendar is focused on.
@@ -99,10 +98,10 @@ class _TaskSheetState extends State<TaskSheet> {
   bool _isRecurrenceSet = false;
 
   /// How long before the due date to fire the reminder. Null means no reminder.
-  /// A reminder is stored on the task as an absolute moment, but it is *chosen*
-  /// as an offset — and the offset has to survive the due date being moved
-  /// afterwards, which an absolute moment would not.
-  Duration? _reminderOffset;
+  /// Stored on the task as an absolute moment but *chosen* as an offset, so it
+  /// survives the due date being moved afterwards.
+  Duration? _pickedReminderOffset;
+  bool _isReminderSet = false;
 
   List<SubTask> _subtasks = [];
   List<String> _ownTags = [];
@@ -129,18 +128,19 @@ class _TaskSheetState extends State<TaskSheet> {
   RecurrenceRule? get _recurrence =>
       _isRecurrenceSet ? _pickedRecurrence : _parsed.recurrence;
 
+  Duration? get _reminderOffset =>
+      _isReminderSet ? _pickedReminderOffset : _parsed.reminderOffset;
+
   List<String> get _tags => [
-        for (final tag in {..._ownTags, ..._parsed.tags})
-          if (!_droppedTags.contains(tag)) tag,
-      ];
+    for (final tag in {..._ownTags, ..._parsed.tags})
+      if (!_droppedTags.contains(tag)) tag,
+  ];
 
   /// [_reminders] is the reminder as the task stores it: an absolute moment,
-  /// [_reminderOffset] before the due date.
+  /// [_reminderOffset] before the due date. No due date means no reminder.
   ///
-  /// A reminder without a due date has nothing to be relative to, so there is
-  /// none. The id of an existing reminder is kept so that re-saving a task whose
-  /// reminder did not move does not cancel and re-arm the notification the OS is
-  /// already holding.
+  /// An existing reminder's id is reused so re-saving an unmoved reminder does
+  /// not cancel and re-arm the notification the OS already holds.
   List<Reminder> get _reminders {
     final dueDate = _dueDate;
     final offset = _reminderOffset;
@@ -150,7 +150,9 @@ class _TaskSheetState extends State<TaskSheet> {
 
     return [
       Reminder(
-        id: existing == null || existing.isEmpty ? _uuid.v4() : existing.first.id,
+        id: existing == null || existing.isEmpty
+            ? _uuid.v4()
+            : existing.first.id,
         at: dueDate.subtract(offset),
       ),
     ];
@@ -167,7 +169,8 @@ class _TaskSheetState extends State<TaskSheet> {
     final tasks = context.read<TasksBloc>().state;
 
     _categories = tasks.categories;
-    _knownTags = {for (final task in tasks.tasks) ...task.tags}.toList()..sort();
+    _knownTags = {for (final task in tasks.tasks) ...task.tags}.toList()
+      ..sort();
     _projects = context.read<ProjectsBloc>().state.projects;
 
     final existing = _original;
@@ -201,8 +204,9 @@ class _TaskSheetState extends State<TaskSheet> {
         : existing.reminders.first;
     final dueDate = existing.dueDate;
 
+    _isReminderSet = true;
     if (reminder != null && dueDate != null) {
-      _reminderOffset = dueDate.difference(reminder.at);
+      _pickedReminderOffset = dueDate.difference(reminder.at);
     }
   }
 
@@ -221,9 +225,24 @@ class _TaskSheetState extends State<TaskSheet> {
       return;
     }
 
+    final hadReminder = _reminderOffset != null;
+
     setState(() {
       _parsed = QuickTaskParams.parse(text, categories: _categories);
     });
+
+    // A reminder can now arrive by typing rather than only from the pill, so the
+    // permission is requested here too — at the moment the user asked to be
+    // notified, which is the same rule [_onReminderSelected] follows.
+    if (!hadReminder && _reminderOffset != null) _ensureNotificationsAllowed();
+  }
+
+  /// [_onCaretMoved] re-reads which token the caret is in after a tap.
+  ///
+  /// Editing completes no tokens, so the rebuild is skipped there.
+  void _onCaretMoved() {
+    if (_isEditing) return;
+    setState(() {});
   }
 
   /// [_activeToken] is the `#`- or `@`-token the caret is inside, which is what
@@ -295,12 +314,12 @@ class _TaskSheetState extends State<TaskSheet> {
 
     // A day chosen from the menu keeps whatever time is already on the task.
     DateTime at(DateTime date) => DateTime(
-          date.year,
-          date.month,
-          date.day,
-          time?.hour ?? 9,
-          time?.minute ?? 0,
-        );
+      date.year,
+      date.month,
+      date.day,
+      time?.hour ?? 9,
+      time?.minute ?? 0,
+    );
 
     switch (choice) {
       case _DueChoice.today:
@@ -381,22 +400,22 @@ class _TaskSheetState extends State<TaskSheet> {
 
   /// [_onReminderSelected] sets when to be reminded, relative to the due date.
   ///
-  /// A reminder needs something to be relative to, so asking for one on a task
-  /// with no date sets the date first rather than refusing — the user has just
-  /// said they want to be reminded, and a dead menu item is not an answer.
+  /// A reminder needs a due date to be relative to, so one is picked first rather
+  /// than refusing.
   ///
-  /// Setting a reminder is also where the OS permission is asked for. Asking on
-  /// first launch, before the user has expressed any interest, is how an app gets
-  /// its notifications denied forever; asking here means the prompt arrives at the
-  /// one moment the user has explicitly said they want to be notified. Without it
-  /// the reminder is saved, scheduled, and silently never delivered.
+  /// This is also where the OS notification permission is requested — at the
+  /// moment the user has asked to be notified, rather than on first launch.
+  /// Without the grant the reminder is saved, scheduled, and never delivered.
   Future<void> _onReminderSelected(_ReminderChoice choice) async {
     if (choice.offset != null && _dueDate == null) {
       await _pickDueDate();
       if (!mounted || _dueDate == null) return;
     }
 
-    setState(() => _reminderOffset = choice.offset);
+    setState(() {
+      _pickedReminderOffset = choice.offset;
+      _isReminderSet = true;
+    });
 
     if (choice.offset != null) _ensureNotificationsAllowed();
 
@@ -432,7 +451,9 @@ class _TaskSheetState extends State<TaskSheet> {
 
     final notes = _notes.text.trim();
 
-    final task = _parsed.copyWith(title: title).toTask(
+    final task = _parsed
+        .copyWith(title: title)
+        .toTask(
           original: _original,
           dueDate: _dueDate,
           priority: _priority,
@@ -445,9 +466,9 @@ class _TaskSheetState extends State<TaskSheet> {
           notes: notes.isEmpty ? null : notes,
         );
 
-    context
-        .read<TaskFormBloc>()
-        .add(SubmitTaskEvent(task: task, isEditing: _isEditing));
+    context.read<TaskFormBloc>().add(
+      SubmitTaskEvent(task: task, isEditing: _isEditing),
+    );
   }
 
   void _delete() {
@@ -474,126 +495,146 @@ class _TaskSheetState extends State<TaskSheet> {
         }
       },
       builder: (context, state) {
-        return Padding(
-          // Lifts the sheet clear of the keyboard, which is always up here.
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: _title,
-                    focusNode: _titleFocus,
-                    autofocus: true,
-                    maxLines: null,
-                    textInputAction: TextInputAction.done,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: context.texts.titleMedium,
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                      hintText: _isEditing
-                          ? 'Task name'
-                          : 'Pay rent tomorrow 5pm #finance p1',
-                    ),
-                    onChanged: _onTitleChanged,
-                    onSubmitted: (_) => _submit(),
-                    // Moving the caret changes which token is being completed.
-                    onTap: () => setState(() {}),
-                  ),
-                  if (_tags.isNotEmpty) ...[
-                    const Gap(10),
-                    _TagRow(
-                      tags: _tags,
-                      onRemove: (tag) => setState(() => _droppedTags.add(tag)),
-                    ),
-                  ],
-                  if (suggestions.isNotEmpty) ...[
-                    const Gap(10),
-                    _SuggestionRow(
-                      suggestions: suggestions,
-                      onSelect: (value) => _completeToken(token!, value),
-                    ),
-                  ],
-                  const Gap(12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _OptionsRow(
-                          dueDate: _dueDate,
-                          priority: _priority,
-                          category: _categoryOf(_categoryId),
-                          categories: _categories,
-                          project: _projectOf(_projectId),
-                          projects: _projects,
-                          recurrence: _recurrence,
-                          reminderOffset: _reminderOffset,
-                          isMoreOpen: _isMoreOpen,
-                          onDueSelected: _onDueSelected,
-                          onReminderSelected: _onReminderSelected,
-                          onPrioritySelected: (priority) => setState(
-                            () => _pickedPriority = priority,
+        return _KeyboardInset(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Only the unbounded parts scroll (title, tags, More); the pills
+                // and send button stay put so opening More cannot push Save
+                // under the keyboard.
+                Flexible(
+                  child: SingleChildScrollView(
+                    // Clamping, not bouncing: an overscroll bounce inside a
+                    // drag-to-dismiss sheet reads as the sheet coming away.
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: _title,
+                          focusNode: _titleFocus,
+                          autofocus: true,
+                          maxLines: null,
+                          textInputAction: TextInputAction.done,
+                          textCapitalization: TextCapitalization.sentences,
+                          style: context.texts.titleMedium,
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                            ),
+                            hintText: _isEditing
+                                ? 'Task name'
+                                : 'Pay rent tomorrow 5pm #finance p1',
                           ),
-                          onCategorySelected: (id) => setState(() {
-                            _pickedCategoryId = id;
-                            _isCategorySet = true;
-                          }),
-                          onProjectSelected: (id) => setState(
-                            () => _projectId = id,
-                          ),
-                          onRecurrenceSelected: (rule) => setState(() {
-                            _pickedRecurrence = rule;
-                            _isRecurrenceSet = true;
-                          }),
-                          onToggleMore: () => setState(
-                            () => _isMoreOpen = !_isMoreOpen,
-                          ),
+                          onChanged: _onTitleChanged,
+                          onSubmitted: (_) => _submit(),
+                          // Moving the caret changes which token is completed.
+                          onTap: _onCaretMoved,
                         ),
-                      ),
-                      const Gap(8),
-                      _SendButton(
-                        isEnabled: _titleText.isNotEmpty && state is! SavingTask,
-                        isSaving: state is SavingTask,
-                        onPressed: _submit,
-                      ),
-                    ],
+                        if (_tags.isNotEmpty) ...[
+                          const Gap(10),
+                          _TagRow(
+                            tags: _tags,
+                            onRemove: (tag) =>
+                                setState(() => _droppedTags.add(tag)),
+                          ),
+                        ],
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child: _isMoreOpen
+                              ? _MoreSection(
+                                  notes: _notes,
+                                  subtask: _subtask,
+                                  subtasks: _subtasks,
+                                  canDelete: _isEditing,
+                                  onAddSubtask: _addSubtask,
+                                  onToggleSubtask: (index, isDone) =>
+                                      setState(() {
+                                        _subtasks = [
+                                          for (
+                                            var i = 0;
+                                            i < _subtasks.length;
+                                            i++
+                                          )
+                                            i == index
+                                                ? _subtasks[i].copyWith(
+                                                    isDone: isDone,
+                                                  )
+                                                : _subtasks[i],
+                                        ];
+                                      }),
+                                  onRemoveSubtask: (index) => setState(() {
+                                    _subtasks = [..._subtasks]..removeAt(index);
+                                  }),
+                                  onDelete: _delete,
+                                )
+                              : const SizedBox(width: double.infinity),
+                        ),
+                      ],
+                    ),
                   ),
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment.topCenter,
-                    child: _isMoreOpen
-                        ? _MoreSection(
-                            notes: _notes,
-                            subtask: _subtask,
-                            subtasks: _subtasks,
-                            canDelete: _isEditing,
-                            onAddSubtask: _addSubtask,
-                            onToggleSubtask: (index, isDone) => setState(() {
-                              _subtasks = [
-                                for (var i = 0; i < _subtasks.length; i++)
-                                  i == index
-                                      ? _subtasks[i].copyWith(isDone: isDone)
-                                      : _subtasks[i],
-                              ];
-                            }),
-                            onRemoveSubtask: (index) => setState(() {
-                              _subtasks = [..._subtasks]..removeAt(index);
-                            }),
-                            onDelete: _delete,
-                          )
-                        : const SizedBox(width: double.infinity),
+                ),
+                if (suggestions.isNotEmpty) ...[
+                  const Gap(10),
+                  _SuggestionRow(
+                    suggestions: suggestions,
+                    onSelect: (value) => _completeToken(token!, value),
                   ),
                 ],
-              ),
+                const Gap(16),
+                Row(
+                  // The pills wrap onto several lines; Save stays on the last of
+                  // them rather than floating in the middle of the block.
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: _OptionsRow(
+                        dueDate: _dueDate,
+                        priority: _priority,
+                        category: _categoryOf(_categoryId),
+                        categories: _categories,
+                        project: _projectOf(_projectId),
+                        projects: _projects,
+                        recurrence: _recurrence,
+                        reminderOffset: _reminderOffset,
+                        isMoreOpen: _isMoreOpen,
+                        onDueSelected: _onDueSelected,
+                        onReminderSelected: _onReminderSelected,
+                        onPrioritySelected: (priority) =>
+                            setState(() => _pickedPriority = priority),
+                        onCategorySelected: (id) => setState(() {
+                          _pickedCategoryId = id;
+                          _isCategorySet = true;
+                        }),
+                        onProjectSelected: (id) =>
+                            setState(() => _projectId = id),
+                        onRecurrenceSelected: (rule) => setState(() {
+                          _pickedRecurrence = rule;
+                          _isRecurrenceSet = true;
+                        }),
+                        onToggleMore: () =>
+                            setState(() => _isMoreOpen = !_isMoreOpen),
+                      ),
+                    ),
+                    const Gap(12),
+                    _SendButton(
+                      isEnabled: _titleText.isNotEmpty && state is! SavingTask,
+                      isSaving: state is SavingTask,
+                      onPressed: _submit,
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
         );
@@ -618,6 +659,25 @@ class _TaskSheetState extends State<TaskSheet> {
   }
 }
 
+/// [_KeyboardInset] lifts [child] clear of the keyboard, which is always up here.
+///
+/// A separate widget rather than a [Padding] in the sheet's own `build`: the
+/// inset changes every frame the keyboard animates, and reading it there would
+/// rebuild the whole sheet — field, parse and pills — on each one.
+class _KeyboardInset extends StatelessWidget {
+  const _KeyboardInset({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: child,
+    );
+  }
+}
+
 /// [_Token] is a `#`- or `@`-token the caret is currently inside.
 class _Token {
   const _Token({
@@ -636,9 +696,8 @@ class _Token {
 /// [_DueChoice] is one entry of the due-date menu. `pick` opens the full picker —
 /// the escape hatch for a date the shortcuts do not cover.
 ///
-/// `time` edits the hour alone. The day shortcuts deliberately keep whatever time
-/// the task already has, so without it the only way to move a 9:00 task to 17:00
-/// would be to re-pick the date it already has.
+/// `time` edits the hour alone: the day shortcuts keep the task's existing time,
+/// so without it moving a 9:00 task to 17:00 means re-picking its date.
 enum _DueChoice { today, tomorrow, nextWeek, time, pick, none }
 
 /// [_RepeatChoice] is one entry of the repeat menu. It exists so that "never" can
@@ -660,8 +719,8 @@ enum _RepeatChoice {
 /// [_ReminderChoice] is one entry of the reminder menu (Requirement 5.1).
 ///
 /// The value is the gap *before* the due date, so `none` is a null offset — and,
-/// as with the repeat menu, it has to be a value rather than a null selection for
-/// a [PopupMenuButton] to report it at all.
+/// as with the repeat menu, it must travel as a value for a [PopupMenuButton] to
+/// report it.
 enum _ReminderChoice {
   none(null, 'No reminder'),
   onTime(Duration.zero, 'At the time'),
@@ -675,11 +734,14 @@ enum _ReminderChoice {
   final String label;
 }
 
-/// [_reminderLabel] names the offset on the pill. An offset an earlier build — or
-/// a future AI parse — set to something the menu does not list still has to read
-/// as *something*, so it falls back to the raw gap rather than to "No reminder",
-/// which would claim there is no reminder when there is one.
-String _reminderLabel(Duration offset) {
+/// [reminderOffsetLabel] names the offset on the pill. An offset the menu does
+/// not list falls back to the raw gap, never to "No reminder", which would deny
+/// a reminder that exists — and a typed offset is often one the menu has no
+/// entry for.
+///
+/// Public because the assistant's preview names the same offsets and must not
+/// name them differently.
+String reminderOffsetLabel(Duration offset) {
   for (final choice in _ReminderChoice.values) {
     if (choice.offset == offset) return choice.label;
   }
@@ -697,8 +759,9 @@ const String _noCategory = '';
 /// The project menu's "none", for the same reason.
 const String _noProject = '';
 
-/// [_OptionsRow] is the one row of pills under the field. It scrolls sideways
-/// rather than wrapping, so the sheet's height never changes as values are set.
+/// [_OptionsRow] is the block of pills under the field. It wraps onto as many
+/// lines as it needs: every option has to be reachable without a sideways scroll,
+/// which hid Category and Repeat off the right edge.
 class _OptionsRow extends StatelessWidget {
   const _OptionsRow({
     required this.dueDate,
@@ -740,126 +803,114 @@ class _OptionsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return SizedBox(
-      height: 38,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          OptionPillMenu<_DueChoice>(
-            icon: Icons.event_rounded,
-            label: dueDate == null ? 'Date' : _dueLabel(dueDate!),
-            isSet: dueDate != null,
-            accent: colors.primary,
-            onSelected: onDueSelected,
-            entries: const [
-              PillOption(value: _DueChoice.today, label: 'Today'),
-              PillOption(value: _DueChoice.tomorrow, label: 'Tomorrow'),
-              PillOption(value: _DueChoice.nextWeek, label: 'Next week'),
-              PillDivider(),
-              PillOption(value: _DueChoice.time, label: 'Time…'),
-              PillOption(value: _DueChoice.pick, label: 'Pick a date…'),
-              PillOption(value: _DueChoice.none, label: 'No date'),
-            ],
-          ),
-          const Gap(8),
-          OptionPillMenu<_ReminderChoice>(
-            icon: Icons.notifications_none_rounded,
-            label: reminderOffset == null
-                ? 'Remind'
-                : _reminderLabel(reminderOffset!),
-            isSet: reminderOffset != null,
-            accent: colors.primary,
-            onSelected: onReminderSelected,
-            entries: [
-              for (final choice in _ReminderChoice.values)
-                PillOption(value: choice, label: choice.label),
-            ],
-          ),
-          const Gap(8),
-          OptionPillMenu<TaskPriority>(
-            icon: Icons.flag_rounded,
-            label: _priorityLabel(priority),
-            isSet: priority != TaskPriority.medium,
-            accent: priority.color,
-            onSelected: onPrioritySelected,
-            entries: [
-              for (final value in _priorityOrder)
-                PillOption(
-                  value: value,
-                  label: '${_priorityLabel(value)} · ${value.name.capitalized}',
-                  icon: Icons.flag_rounded,
-                  iconColor: value.color,
-                ),
-            ],
-          ),
-          const Gap(8),
-          // "No category" and "never repeat" travel as sentinels rather than as
-          // null, so that a menu selection and a dismissal stay distinguishable.
-          OptionPillMenu<String>(
-            icon: Icons.folder_outlined,
-            label: category?.name ?? 'Category',
-            isSet: category != null,
-            accent: category?.color ?? colors.primary,
-            onSelected: (id) => onCategorySelected(id == _noCategory ? null : id),
-            entries: [
-              const PillOption(value: _noCategory, label: 'None'),
-              for (final value in categories)
-                PillOption(
-                  value: value.id,
-                  label: value.name,
-                  icon: Icons.brightness_1_rounded,
-                  iconColor: value.color,
-                ),
-            ],
-          ),
-          // Only worth a pill when there is a project to file under; the sentinel
-          // travels for "none" for the same reason the category one does.
-          if (projects.isNotEmpty) ...[
-            const Gap(8),
-            OptionPillMenu<String>(
-              icon: Icons.workspaces_outline,
-              label: project?.name ?? 'Project',
-              isSet: project != null,
-              accent: project?.color ?? colors.primary,
-              onSelected: (id) =>
-                  onProjectSelected(id == _noProject ? null : id),
-              entries: [
-                const PillOption(value: _noProject, label: 'None'),
-                for (final value in projects)
-                  PillOption(value: value.id, label: value.name),
-              ],
-            ),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        OptionPillMenu<_DueChoice>(
+          icon: Icons.event_rounded,
+          label: dueDate == null ? 'Date' : _dueLabel(dueDate!),
+          isSet: dueDate != null,
+          accent: colors.primary,
+          onSelected: onDueSelected,
+          entries: const [
+            PillOption(value: _DueChoice.today, label: 'Today'),
+            PillOption(value: _DueChoice.tomorrow, label: 'Tomorrow'),
+            PillOption(value: _DueChoice.nextWeek, label: 'Next week'),
+            PillDivider(),
+            PillOption(value: _DueChoice.time, label: 'Time…'),
+            PillOption(value: _DueChoice.pick, label: 'Pick a date…'),
+            PillOption(value: _DueChoice.none, label: 'No date'),
           ],
-          const Gap(8),
-          OptionPillMenu<_RepeatChoice>(
-            icon: Icons.repeat_rounded,
-            label: recurrence == null
-                ? 'Repeat'
-                : recurrence!.frequency.name.capitalized,
-            isSet: recurrence != null,
-            accent: colors.primary,
-            onSelected: (choice) => onRecurrenceSelected(
-              choice.frequency == null
-                  ? null
-                  : RecurrenceRule(frequency: choice.frequency!),
-            ),
+        ),
+        OptionPillMenu<_ReminderChoice>(
+          icon: Icons.notifications_none_rounded,
+          label: reminderOffset == null
+              ? 'Remind'
+              : reminderOffsetLabel(reminderOffset!),
+          isSet: reminderOffset != null,
+          accent: colors.primary,
+          onSelected: onReminderSelected,
+          entries: [
+            for (final choice in _ReminderChoice.values)
+              PillOption(value: choice, label: choice.label),
+          ],
+        ),
+        OptionPillMenu<TaskPriority>(
+          icon: Icons.flag_rounded,
+          label: _priorityLabel(priority),
+          isSet: priority != TaskPriority.medium,
+          accent: priority.color,
+          onSelected: onPrioritySelected,
+          entries: [
+            for (final value in _priorityOrder)
+              PillOption(
+                value: value,
+                label: '${_priorityLabel(value)} · ${value.name.capitalized}',
+                icon: Icons.flag_rounded,
+                iconColor: value.color,
+              ),
+          ],
+        ),
+        // Sentinel rather than null, so a "None" pick stays distinguishable
+        // from a dismissal.
+        OptionPillMenu<String>(
+          icon: Icons.folder_outlined,
+          label: category?.name ?? 'Category',
+          isSet: category != null,
+          accent: category?.color ?? colors.primary,
+          onSelected: (id) => onCategorySelected(id == _noCategory ? null : id),
+          entries: [
+            const PillOption(value: _noCategory, label: 'None'),
+            for (final value in categories)
+              PillOption(
+                value: value.id,
+                label: value.name,
+                icon: Icons.brightness_1_rounded,
+                iconColor: value.color,
+              ),
+          ],
+        ),
+        // Only worth a pill when there is a project to file under.
+        if (projects.isNotEmpty) ...[
+          OptionPillMenu<String>(
+            icon: Icons.workspaces_outline,
+            label: project?.name ?? 'Project',
+            isSet: project != null,
+            accent: project?.color ?? colors.primary,
+            onSelected: (id) => onProjectSelected(id == _noProject ? null : id),
             entries: [
-              for (final choice in _RepeatChoice.values)
-                PillOption(value: choice, label: choice.label),
+              const PillOption(value: _noProject, label: 'None'),
+              for (final value in projects)
+                PillOption(value: value.id, label: value.name),
             ],
-          ),
-          const Gap(8),
-          OptionPill(
-            icon: isMoreOpen
-                ? Icons.expand_less_rounded
-                : Icons.more_horiz_rounded,
-            label: 'More',
-            isSet: isMoreOpen,
-            accent: colors.primary,
-            onTap: onToggleMore,
           ),
         ],
-      ),
+        OptionPillMenu<_RepeatChoice>(
+          icon: Icons.repeat_rounded,
+          label: recurrence == null ? 'Repeat' : recurrence!.label,
+          isSet: recurrence != null,
+          accent: colors.primary,
+          onSelected: (choice) => onRecurrenceSelected(
+            choice.frequency == null
+                ? null
+                : RecurrenceRule(frequency: choice.frequency!),
+          ),
+          entries: [
+            for (final choice in _RepeatChoice.values)
+              PillOption(value: choice, label: choice.label),
+          ],
+        ),
+        OptionPill(
+          icon: isMoreOpen
+              ? Icons.expand_less_rounded
+              : Icons.more_horiz_rounded,
+          label: 'More',
+          isSet: isMoreOpen,
+          accent: colors.primary,
+          onTap: onToggleMore,
+        ),
+      ],
     );
   }
 }
@@ -951,10 +1002,7 @@ class _MoreSection extends StatelessWidget {
           maxLines: 3,
           minLines: 1,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            hintText: 'Notes',
-            isDense: true,
-          ),
+          decoration: const InputDecoration(hintText: 'Notes', isDense: true),
         ),
         const Gap(12),
         for (var i = 0; i < subtasks.length; i++)
@@ -978,6 +1026,7 @@ class _MoreSection extends StatelessWidget {
               IconButton(
                 onPressed: () => onRemoveSubtask(i),
                 icon: const Icon(Icons.close_rounded, size: 18),
+                tooltip: 'Remove subtask',
                 visualDensity: VisualDensity.compact,
               ),
             ],
@@ -999,6 +1048,7 @@ class _MoreSection extends StatelessWidget {
               onPressed: onAddSubtask,
               icon: const Icon(Icons.add_rounded),
               tooltip: 'Add subtask',
+              
             ),
           ],
         ),
@@ -1008,9 +1058,7 @@ class _MoreSection extends StatelessWidget {
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline_rounded, size: 18),
             label: const Text('Delete task'),
-            style: TextButton.styleFrom(
-              foregroundColor: context.colors.error,
-            ),
+            style: TextButton.styleFrom(foregroundColor: context.colors.error),
           ),
         ],
       ],
@@ -1035,24 +1083,45 @@ class _SendButton extends StatelessWidget {
 
     return SizedBox.square(
       dimension: 44,
-      child: IconButton.filled(
-        onPressed: isEnabled ? onPressed : null,
-        tooltip: 'Save task',
-        style: IconButton.styleFrom(
-          backgroundColor: colors.primary,
-          foregroundColor: colors.onPrimary,
-          disabledBackgroundColor: colors.surfaceContainerHighest,
-          disabledForegroundColor: colors.onSurfaceVariant,
+      // The swell and glow arrive on the keystroke that makes the task saveable,
+      // so "ready to save" is visible without reading anything.
+      child: AnimatedScale(
+        scale: isEnabled ? 1 : 0.88,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: isEnabled
+                ? [
+                    BoxShadow(
+                      color: colors.primary.withValues(alpha: 0.4),
+                      blurRadius: 14,
+                      spreadRadius: -2,
+                    ),
+                  ]
+                : null,
+          ),
+          child: IconButton.filled(
+            onPressed: isEnabled ? onPressed : null,
+            tooltip: 'Save task',
+            style: IconButton.styleFrom(
+              backgroundColor: colors.primary,
+              foregroundColor: colors.onPrimary,
+              disabledBackgroundColor: colors.surfaceContainerHighest,
+              disabledForegroundColor: colors.onSurfaceVariant,
+            ),
+            icon: isSaving
+                ? SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colors.onPrimary,
+                    ),
+                  )
+                : const Icon(Icons.arrow_upward_rounded, size: 20),
+          ),
         ),
-        icon: isSaving
-            ? SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: colors.onPrimary,
-                ),
-              )
-            : const Icon(Icons.arrow_upward_rounded, size: 20),
       ),
     );
   }
@@ -1067,11 +1136,11 @@ const List<TaskPriority> _priorityOrder = [
 ];
 
 String _priorityLabel(TaskPriority priority) => switch (priority) {
-      TaskPriority.critical => 'P1',
-      TaskPriority.high => 'P2',
-      TaskPriority.medium => 'P3',
-      TaskPriority.low => 'P4',
-    };
+  TaskPriority.critical => 'P1',
+  TaskPriority.high => 'P2',
+  TaskPriority.medium => 'P3',
+  TaskPriority.low => 'P4',
+};
 
 /// [_dueLabel] names the day, and the time only when it is not the default 09:00 —
 /// the pill has to stay short enough to read at a glance.

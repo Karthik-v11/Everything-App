@@ -70,6 +70,8 @@ class _BookmarksPageState extends State<BookmarksPage> {
             onPressed: () => showBookmarkSheet(context),
             icon: const Icon(Icons.add_rounded),
             tooltip: 'Save a link',
+                                  color: context.colors.primary,
+
           ),
         ],
       ),

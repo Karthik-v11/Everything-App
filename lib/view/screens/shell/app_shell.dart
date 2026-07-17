@@ -17,6 +17,10 @@ class AppShell extends StatelessWidget {
 
   final StatefulNavigationShell navigationShell;
 
+  /// Minimum horizontal fling velocity (px/s) that counts as a tab swipe.
+  /// Below this the gesture is treated as an accidental drag and ignored.
+  static const double _swipeVelocity = 240;
+
   /// [_onSelect] switches branches.
   ///
   /// `initialLocation: true` only when the already-selected tab is tapped again,
@@ -27,6 +31,21 @@ class AppShell extends StatelessWidget {
         initialLocation: index == navigationShell.currentIndex,
       );
 
+  /// A fling past [_swipeVelocity] moves one tab in the fling's direction.
+  ///
+  /// Swiping right (positive velocity) moves to the previous tab, matching the
+  /// bar's left-to-right order. Out-of-range targets are dropped rather than
+  /// wrapped, so the edge tabs feel like edges.
+  void _onSwipe(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() < _swipeVelocity) return;
+
+    final target = navigationShell.currentIndex + (velocity < 0 ? 1 : -1);
+    if (target < 0 || target >= AppBottomNav.destinations.length) return;
+
+    navigationShell.goBranch(target);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -34,7 +53,12 @@ class AppShell extends StatelessWidget {
       // content scrolls beneath the bar's blur instead of stopping at its edge.
       // Every scrolling module pads its own bottom to clear the dock.
       extendBody: true,
-      body: navigationShell,
+      // The detector loses the arena to any horizontal scrollable inside a
+      // module, so a carousel still scrolls without switching tabs.
+      body: GestureDetector(
+        onHorizontalDragEnd: _onSwipe,
+        child: navigationShell,
+      ),
       bottomNavigationBar: AppBottomNav(
         currentIndex: navigationShell.currentIndex,
         onSelect: _onSelect,

@@ -14,20 +14,37 @@ class InitBackupEvent extends BackupEvent {
   const InitBackupEvent();
 }
 
-/// [CreateBackupEvent] writes a new encrypted backup now (Requirement 22.1).
+/// [CreateBackupEvent] writes a new encrypted backup now (Requirement 22.1),
+/// sealed with the stored backup PIN. Fails plainly if none is set — the UI asks
+/// for one first.
 class CreateBackupEvent extends BackupEvent {
   const CreateBackupEvent();
 }
 
-/// [RestoreBackupEvent] verifies and applies the backup at [path]
-/// (Requirement 22.6).
-class RestoreBackupEvent extends BackupEvent {
-  const RestoreBackupEvent({required this.path});
+/// [SetBackupPINEvent] chooses the PIN that new backups are sealed with.
+class SetBackupPINEvent extends BackupEvent {
+  const SetBackupPINEvent({required this.pin});
 
-  final String path;
+  final String pin;
 
   @override
-  List<Object?> get props => [path];
+  List<Object?> get props => [pin];
+}
+
+/// [RestoreBackupEvent] verifies and applies the backup at [path], unsealing it
+/// with [pin] (Requirement 22.6).
+///
+/// [pin] is whatever the user typed at the restore prompt, not the stored one: the
+/// file may have come from another phone and been sealed with a PIN this install
+/// has never held.
+class RestoreBackupEvent extends BackupEvent {
+  const RestoreBackupEvent({required this.path, required this.pin});
+
+  final String path;
+  final String pin;
+
+  @override
+  List<Object?> get props => [path, pin];
 }
 
 /// [DeleteBackupEvent] removes one backup file.

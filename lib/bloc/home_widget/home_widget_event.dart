@@ -14,18 +14,16 @@ class WatchHomeWidgetEvent extends HomeWidgetEvent {
   const WatchHomeWidgetEvent();
 }
 
-/// [WatchHomeWidgetFinanceEvent] starts watching the transaction stream.
-///
-/// Its own event because a bloc handler holds one emitter, and two streams need
-/// two handlers. Dispatched by [WatchHomeWidgetEvent], never from outside.
+/// [WatchHomeWidgetFinanceEvent] starts watching the transaction stream. Its own
+/// event because a handler holds one emitter. Dispatched by
+/// [WatchHomeWidgetEvent], never from outside.
 class WatchHomeWidgetFinanceEvent extends HomeWidgetEvent {
   const WatchHomeWidgetFinanceEvent();
 }
 
-/// [WatchHomeWidgetTapsEvent] starts listening for widget taps.
-///
-/// Its own event for the same reason the finance one is: a handler holds one
-/// emitter. Dispatched by [WatchHomeWidgetEvent], never from outside.
+/// [WatchHomeWidgetTapsEvent] starts listening for widget taps. Its own event
+/// because a handler holds one emitter. Dispatched by [WatchHomeWidgetEvent],
+/// never from outside.
 class WatchHomeWidgetTapsEvent extends HomeWidgetEvent {
   const WatchHomeWidgetTapsEvent();
 }
@@ -39,9 +37,8 @@ class HomeWidgetTapHandled extends HomeWidgetEvent {
 /// [SyncHomeWidgetEvent] rebuilds the payload and publishes it
 /// (Requirement 13).
 ///
-/// Queued by the streams, coalesced to one per burst. No feature dispatches this:
-/// a write that has to remember to refresh the widget is a write that will
-/// eventually forget.
+/// Queued by the streams and coalesced to one per burst. Never dispatched by a
+/// feature.
 class SyncHomeWidgetEvent extends HomeWidgetEvent {
   const SyncHomeWidgetEvent();
 }

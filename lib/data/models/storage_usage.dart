@@ -3,11 +3,9 @@ import 'package:equatable/equatable.dart';
 /// [StorageModule] is a line in the Storage Usage section (Requirement 25.4).
 ///
 /// The requirement names Tasks, Library, Finance and the AI model; [search],
-/// [backups] and [other] are here because they are real consumers on a device and
-/// a breakdown whose parts do not add up to the total is a breakdown nobody
-/// believes. [other] is what is left — the schema, free pages, drift's own
-/// bookkeeping — and it exists so the arithmetic closes honestly rather than by
-/// quietly rounding the difference into one of the named modules.
+/// [backups] and [other] are here so the parts add up to the total. [other] is
+/// what is left — schema, free pages, drift's bookkeeping — rather than the
+/// difference being rounded into one of the named modules.
 enum StorageModule {
   tasks,
   library,
@@ -70,11 +68,8 @@ class StorageUsage extends Equatable {
   final int attachmentBytes;
 
   /// True when the per-module split could not be measured and the lines are row
-  /// counts without byte figures.
-  ///
-  /// Surfaced to the UI rather than hidden, because "Tasks — 142 items" and
-  /// "Tasks — 142 items, 2.1 MB" are different claims and the screen should not
-  /// make the second one when only the first is known.
+  /// counts without byte figures. Surfaced to the UI so the screen does not claim
+  /// a size it does not know.
   final bool isEstimated;
 
   int get totalBytes => databaseBytes + attachmentBytes + _backupBytes;

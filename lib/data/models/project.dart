@@ -6,11 +6,10 @@ import 'package:flutter/material.dart';
 
 /// [Project] is a container for long-term work (Requirement 10).
 ///
-/// [parentProjectId] is what makes a project a sub-project (Requirement 10.2). It
-/// is a plain nullable id rather than a nested list of children: the tree is
-/// rebuilt in memory from one flat stream, so no two rows can disagree about who a
-/// project's parent is, and moving a project is one field rather than two list
-/// edits.
+/// [parentProjectId] is what makes a project a sub-project (Requirement 10.2). A
+/// plain nullable id rather than a nested child list: the tree is rebuilt in
+/// memory from one flat stream, so no two rows can disagree about a project's
+/// parent, and moving one is a single field edit.
 class Project extends Equatable {
   const Project({
     required this.id,
@@ -98,12 +97,11 @@ class Project extends Equatable {
       ];
 }
 
-/// [ProjectTree] answers the questions a flat list of projects cannot: who are a
-/// project's children, and what would deleting it actually take with it.
+/// [ProjectTree] answers what a flat list cannot: a project's children, and what
+/// deleting it would take with it.
 ///
-/// It is a pure function of the project list, built where it is needed rather than
-/// stored, so it cannot go stale — the parent ids in the rows are the only truth
-/// about the shape of the tree.
+/// Built where it is needed rather than stored, so it cannot go stale — the
+/// parent ids in the rows are the only truth about the tree's shape.
 class ProjectTree {
   ProjectTree(this.projects) {
     for (final project in projects) {
@@ -128,10 +126,8 @@ class ProjectTree {
   /// [descendantsOf] is every project below [id], at any depth, excluding [id]
   /// itself.
   ///
-  /// Iterative rather than recursive, and it tracks what it has already walked: a
-  /// cycle in `parentProjectId` — which nothing in the app creates, but a bad
-  /// restore or a future move could — would otherwise hang the app rather than
-  /// deleting a project.
+  /// Tracks what it has walked: a cycle in `parentProjectId` — which nothing in
+  /// the app creates, but a bad restore could — would otherwise hang the app.
   List<Project> descendantsOf(String id) {
     final found = <Project>[];
     final seen = <String>{id};

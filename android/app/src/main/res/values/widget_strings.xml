@@ -30,4 +30,31 @@
     <string name="widget_task_status">Task status</string>
     <string name="widget_add_task">Add a task</string>
     <string name="widget_add_expense">Add an expense</string>
+
+    <!-- Priority is drawn as the marker's colour, so it is invisible to a screen
+         reader and to anyone who cannot separate the four hues. These are what
+         TodayTasksWidgetProvider labels each marker with, so the row still says
+         its priority when the colour cannot. -->
+    <string name="widget_priority_low">Low priority</string>
+    <string name="widget_priority_medium">Medium priority</string>
+    <string name="widget_priority_high">High priority</string>
+    <string name="widget_priority_critical">Critical priority</string>
+    <string name="widget_priority_done">Completed</string>
+
+    <!--
+      Sample text for the picker previews only (see widget_*_info.xml). Not
+      translatable and never drawn on a placed widget: the preview layouts are
+      rendered by the launcher with nothing bound, so the numbers here are
+      illustrative and deliberately plausible rather than real.
+    -->
+    <string name="widget_preview_spent_caption" translatable="false">Spent in July</string>
+    <string name="widget_preview_spent_amount" translatable="false">₹15K</string>
+    <string name="widget_preview_title" translatable="false">3 tasks today</string>
+    <string name="widget_preview_overdue" translatable="false">1 overdue</string>
+    <string name="widget_preview_task_1" translatable="false">Pay rent</string>
+    <string name="widget_preview_task_2" translatable="false">Review pull request</string>
+    <string name="widget_preview_task_3" translatable="false">Call the dentist</string>
+    <string name="widget_preview_due_1" translatable="false">Overdue</string>
+    <string name="widget_preview_due_2" translatable="false">5:30 PM</string>
+    <string name="widget_preview_updated" translatable="false">9:30 AM</string>
 </resources>

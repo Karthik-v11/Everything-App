@@ -8,10 +8,9 @@ part 'projects_dao.g.dart';
 /// [ProjectsDao] is every SQL statement the Projects sub-feature issues
 /// (Requirement 10).
 ///
-/// It reaches four tables rather than one because a project is a *container*: its
-/// contents live in the tasks, documents and attachments tables and point back at
-/// it. Counting and deleting those contents is the whole of Requirement 10.4, and
-/// it cannot be done from the projects table alone.
+/// It reaches four tables because a project is a container: its contents live in
+/// the tasks, documents and attachments tables and point back at it. Counting and
+/// deleting them (Requirement 10.4) cannot be done from the projects table alone.
 @DriftAccessor(
   tables: [ProjectsTable, TasksTable, DocumentsTable, AttachmentsTable],
 )
@@ -21,12 +20,9 @@ class ProjectsDao extends DatabaseAccessor<AppDatabase>
 
   // ── Projects ───────────────────────────────────────────────────────────────
 
-  /// [watchAll] streams every project, at every depth.
-  ///
-  /// The tree is rebuilt in memory from this one flat list (see [ProjectTree]).
-  /// Querying one level at a time would mean a query per expanded node, and a
-  /// screen that has to ask the database again every time a disclosure arrow is
-  /// tapped.
+  /// [watchAll] streams every project, at every depth. The tree is rebuilt in
+  /// memory from this one flat list (see [ProjectTree]); querying a level at a
+  /// time would mean a query per expanded node.
   Stream<List<ProjectEntry>> watchAll() => (select(projectsTable)
         ..orderBy([(p) => OrderingTerm(expression: p.createdAt)]))
       .watch()
@@ -52,13 +48,10 @@ class ProjectsDao extends DatabaseAccessor<AppDatabase>
           .watch()
           .distinctList();
 
-  /// [contentCounts] is what a project actually holds, across every table that
-  /// points at it — including the projects [projectIds] themselves nest.
-  ///
-  /// The delete confirmation reads this. Requirement 10.4 asks for a confirmation
-  /// before permanently removing "the project and all its contents", and a dialog
-  /// that says "Delete project?" without saying that it is also about to delete
-  /// eleven tasks is not the confirmation that requirement is asking for.
+  /// [contentCounts] is what a project holds, across every table that points at
+  /// it — including the projects [projectIds] themselves nest. The delete
+  /// confirmation reads this to name what it is about to remove
+  /// (Requirement 10.4).
   Future<({int tasks, int documents, int attachments})> contentCounts(
     List<String> projectIds,
   ) async {
@@ -101,12 +94,10 @@ class ProjectsDao extends DatabaseAccessor<AppDatabase>
   /// (Requirement 10.4).
   ///
   /// [projectIds] must already include the descendants — the caller resolves the
-  /// tree, because the tree is a fact about the whole project list and this method
-  /// only has the ids it was handed.
+  /// tree, which is a fact about the whole project list.
   ///
-  /// One transaction: a delete that removed a project's tasks and then failed to
-  /// remove the project would leave a container whose contents had silently
-  /// vanished, which is worse than either outcome on its own.
+  /// One transaction: removing a project's tasks and then failing to remove the
+  /// project would leave a container whose contents silently vanished.
   Future<void> deleteCascade(List<String> projectIds) async {
     if (projectIds.isEmpty) return;
 

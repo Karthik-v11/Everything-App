@@ -24,10 +24,30 @@ import 'package:go_router/go_router.dart';
 /// [HomeWidgetBloc], and the second listener runs it the moment the app unlocks,
 /// so a widget tap on a locked phone still does what the user asked, after they
 /// prove who they are.
-class HomeWidgetListener extends StatelessWidget {
+class HomeWidgetListener extends StatefulWidget {
   const HomeWidgetListener({required this.child, super.key});
 
   final Widget child;
+
+  @override
+  State<HomeWidgetListener> createState() => _HomeWidgetListenerState();
+}
+
+class _HomeWidgetListenerState extends State<HomeWidgetListener> {
+  @override
+  void initState() {
+    super.initState();
+
+    // Mounts with the auth gate rather than at launch, so a tap that arrived on
+    // a cold app can predate this widget and both transitions below can already
+    // have passed — see the equivalent note in [ShareListener]. Re-checking on
+    // mount is what makes a widget tap on a cold start reliable.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pending = context.read<HomeWidgetBloc>().state.pendingAction;
+      if (pending != null) _run(context, pending);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +68,7 @@ class HomeWidgetListener extends StatelessWidget {
           },
         ),
       ],
-      child: child,
+      child: widget.child,
     );
   }
 

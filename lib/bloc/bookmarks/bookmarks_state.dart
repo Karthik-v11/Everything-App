@@ -2,10 +2,9 @@ part of 'bookmarks_bloc.dart';
 
 /// [BookmarksState] holds everything the Bookmarks screen renders.
 ///
-/// [bookmarks] is the complete list from the database. The filtered list, the
-/// counts on the source chips and the folder groupings are all derived from it
-/// here, so changing a filter is a recomputation rather than a database round trip
-/// and no two figures on the screen can disagree.
+/// [bookmarks] is the complete list from the database; the filtered list, chip
+/// counts and folder groupings are derived from it, so changing a filter is a
+/// recomputation rather than a database round trip.
 class BookmarksState extends Equatable {
   const BookmarksState({
     this.isLoading = false,
@@ -41,16 +40,14 @@ class BookmarksState extends Equatable {
     return true;
   }
 
-  /// [isFiltered] tells "you have saved nothing" from "nothing matched", which are
-  /// two very different empty states.
+  /// [isFiltered] tells "you have saved nothing" from "nothing matched" — two
+  /// different empty states.
   bool get isFiltered =>
       source != null || folderId != null || query.isNotBlank;
 
-  /// [countOf] is how many bookmarks a source type holds — the number on its chip.
-  ///
-  /// It counts within the *folder* filter but ignores the source filter, so the
-  /// chips keep showing what is behind them rather than collapsing to one non-zero
-  /// count as soon as one is selected.
+  /// [countOf] is the number on a source type's chip. It counts within the folder
+  /// filter but ignores the source filter, so selecting one chip does not collapse
+  /// the others to zero.
   int countOf(BookmarkSource value) {
     var count = 0;
     for (final bookmark in bookmarks) {
@@ -62,8 +59,8 @@ class BookmarksState extends Equatable {
     return count;
   }
 
-  /// [sources] are the source types the user actually has bookmarks in — the only
-  /// ones worth a chip. A filter row offering "Reddit (0)" is a row of dead ends.
+  /// [sources] are the source types with at least one bookmark — the only ones
+  /// worth a chip.
   List<BookmarkSource> get sources => [
         for (final value in BookmarkSource.values)
           if (countOf(value) > 0) value,

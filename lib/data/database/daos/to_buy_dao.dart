@@ -8,9 +8,9 @@ part 'to_buy_dao.g.dart';
 /// [ToBuyDao] is every SQL statement the To Buy list issues (Requirement 7).
 ///
 /// [watchAll] streams the whole list, purchased items included: the screen groups
-/// them rather than hiding them, and the reminder plan needs to see a purchased
-/// item to know its alarm should be withdrawn. Filtering it here would mean the
-/// planner could not tell a purchased item from a deleted one.
+/// rather than hides them, and the reminder plan needs to see a purchased item to
+/// know its alarm should be withdrawn. Filtering here would leave the planner
+/// unable to tell a purchased item from a deleted one.
 @DriftAccessor(tables: [ToBuyItemsTable])
 class ToBuyDao extends DatabaseAccessor<AppDatabase> with _$ToBuyDaoMixin {
   ToBuyDao(super.db);

@@ -107,6 +107,8 @@ class _VaultPageState extends State<VaultPage> {
                   onPressed: () => showVaultItemSheet(context),
                   icon: const Icon(Icons.add_rounded),
                   tooltip: 'Add an item',
+                                        color: context.colors.primary,
+
                 ),
             ],
           ),

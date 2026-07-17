@@ -12,16 +12,8 @@ part 'theme_state.dart';
 
 /// [ThemeBloc] owns the user's theme preferences (Requirement 20).
 ///
-/// Style A: the three preferences are independent slices of one persistent
-/// object, updated via [copyWith] and persisted by [HydratedBloc].
-///
-/// It has no repository. The state is the data, and [HydratedBloc] persists it;
-/// a service and a DAO would add no behaviour.
-///
-/// Events:
-/// 1) [ChangeThemeVariantEvent] — dark / light / amoled / system.
-/// 2) [ChangeAccentColorEvent] — one of [AppColors.accents], or a custom hex.
-/// 3) [ChangeFontSizeEvent] — small / medium / large.
+/// No repository: the state is the data and [HydratedBloc] persists it, so a
+/// service and DAO would add no behaviour.
 class ThemeBloc extends HydratedBloc<ThemeEvent, ThemeState> {
   ThemeBloc() : super(const ThemeState()) {
     on<ChangeThemeVariantEvent>(_onChangeThemeVariantEvent);

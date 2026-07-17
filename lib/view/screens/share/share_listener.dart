@@ -23,10 +23,31 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 /// The sheet is shown against [AppRouter.rootNavigatorKey] rather than this
 /// widget's own context: this sits *above* the router's [Navigator], so
 /// `Navigator.of(context)` from here would find nothing to push onto.
-class ShareListener extends StatelessWidget {
+class ShareListener extends StatefulWidget {
   const ShareListener({required this.child, super.key});
 
   final Widget child;
+
+  @override
+  State<ShareListener> createState() => _ShareListenerState();
+}
+
+class _ShareListenerState extends State<ShareListener> {
+  @override
+  void initState() {
+    super.initState();
+
+    // This widget mounts when the auth gate opens, not at launch, so both
+    // transitions the listeners below watch for can have already happened by the
+    // time it exists — on the no-PIN path `isChecked` and `isUnlocked` flip in a
+    // single emit. Re-checking the pending state on mount makes the replay
+    // independent of that ordering; without it a share that arrived during the
+    // gate would sit in the bloc with nothing left to open it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (context.read<ShareBloc>().state.isChooserOpen) _open(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +67,7 @@ class ShareListener extends StatelessWidget {
           },
         ),
       ],
-      child: child,
+      child: widget.child,
     );
   }
 

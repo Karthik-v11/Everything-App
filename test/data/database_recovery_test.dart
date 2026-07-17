@@ -20,8 +20,14 @@ void main() {
   setUp(() => directory = Directory.systemTemp.createTempSync('db_recovery'));
   tearDown(() => directory.deleteSync(recursive: true));
 
-  const keyA = 'aaaa1111bbbb2222cccc3333dddd4444';
-  const keyB = 'ffff9999eeee8888dddd7777cccc6666';
+  // 64 hex characters — 32 bytes, the exact shape `SecurityService.databaseKey`
+  // mints and the only shape SQLCipher's raw-key form accepts. A shorter string
+  // would be taken as a passphrase instead and silently exercise a different
+  // code path to the shipped app's.
+  const keyA =
+      'aaaa1111bbbb2222cccc3333dddd4444aaaa1111bbbb2222cccc3333dddd4444';
+  const keyB =
+      'ffff9999eeee8888dddd7777cccc6666ffff9999eeee8888dddd7777cccc6666';
 
   AppDatabase openWith(String key) => AppDatabase.encrypted(
         encryptionKey: key,

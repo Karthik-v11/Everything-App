@@ -11,25 +11,12 @@ part 'watchlist_state.dart';
 
 /// [WatchlistBloc] owns the Watchlist (Requirement 8).
 ///
-/// Style A: it holds the entries, the media-type filter, the status filter and the
-/// search query.
-///
-/// It subscribes once to the DAO stream and never re-reads. Every count, group and
+/// Subscribes once to the DAO stream and never re-reads — every count, group and
 /// filter is derived in memory from that one list.
 ///
-/// Property 16 is **not enforced here**. Progress clamping and the completion stamp
-/// live in [WatchlistItem.withProgress] and [WatchlistItem.withStatus], which the
-/// service routes every write through — so the stepper on a card, the field in the
-/// sheet, and any future writer (the AI parser, a share intent) are all subject to
-/// the same rule without each having to remember it.
-///
-/// Events:
-/// 1) [WatchWatchlistEvent] — subscribe to the entries. Fired once.
-/// 2) [FilterWatchlistEvent] — media type and status narrowing.
-/// 3) [SearchWatchlistEvent] — in-module search.
-/// 4) [SaveWatchlistItemEvent] / [DeleteWatchlistItemEvent] — the sheet, the swipe.
-/// 5) [SetWatchlistProgressEvent] — the stepper (Requirement 8.2).
-/// 6) [SetWatchlistStatusEvent] — the status menu (Requirement 8.3).
+/// Property 16 is **not enforced here**: progress clamping and the completion
+/// stamp live in [WatchlistItem.withProgress] / [WatchlistItem.withStatus], which
+/// the service routes every write through, so all writers get the rule.
 class WatchlistBloc extends Bloc<WatchlistEvent, WatchlistState> {
   WatchlistBloc({required this.repository}) : super(const WatchlistState()) {
     on<WatchWatchlistEvent>(_onWatchWatchlistEvent);
@@ -100,12 +87,8 @@ class WatchlistBloc extends Bloc<WatchlistEvent, WatchlistState> {
     }
   }
 
-  /// [_onSetWatchlistProgressEvent] records how far the user has got
-  /// (Requirement 8.2).
-  ///
-  /// The value is passed to the repository unclamped and unchecked, on purpose: the
-  /// clamp is [WatchlistItem.withProgress]'s job and doing it here as well would be
-  /// two places for the rule to be, which is one place for it to be wrong.
+  /// Records how far the user has got (Requirement 8.2). Progress is passed
+  /// unclamped on purpose — the clamp is [WatchlistItem.withProgress]'s job.
   FutureOr<void> _onSetWatchlistProgressEvent(
     SetWatchlistProgressEvent event,
     Emitter<WatchlistState> emit,

@@ -5,14 +5,10 @@ import 'package:everything_app/core/utils/constants.dart';
 import 'package:everything_app/data/models/article.dart';
 import 'package:everything_app/data/models/json_response.dart';
 
-/// How many headlines a category keeps. The Dashboard shows a handful and the
-/// rest is scroll nobody does — and every one of them is hydrated on every fetch.
+/// How many headlines a category keeps. Every one is hydrated on every fetch.
 const int kNewsPageSize = 20;
 
 /// [NewsService] reads the News_Service (Requirement 3.9).
-///
-/// The app's other networked service, built exactly as [WeatherService] is: its
-/// own [Dio], ten-second timeouts, the client interceptor, [JsonResponse] out.
 class NewsService {
   NewsService({required this.dio}) {
     dio.options
@@ -60,7 +56,7 @@ class NewsService {
               if (article is Map<String, dynamic>)
                 if (Article.fromJson(article) case final Article parsed)
                   // A pulled article arrives with every field set to `[Removed]`
-                  // and an unopenable url — it is a row that can only disappoint.
+                  // and an unopenable url.
                   if (parsed.isRenderable) parsed,
           ],
         );

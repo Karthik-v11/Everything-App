@@ -46,23 +46,17 @@ enum AiIntent {
 /// assistant acts on it without asking (Requirement 16.7).
 ///
 /// Below it the sheet asks a clarifying question rather than creating something
-/// half-understood — a task with no name, an expense with no amount — because a
-/// wrong entry the user has to find and undo is worse than one more question.
+/// half-understood — a task with no name, an expense with no amount.
 ///
-/// It is the **default**, not the rule: the user can move it in Settings
-/// (Requirement 25.3), and the live value reaches the parse through
-/// `isConfidentAt`. This constant is what a fresh install starts at and what the
-/// pure `isConfident` getters assume, so a test or a call site with no setting to
-/// hand still gets the shipped behaviour.
+/// It is the default, not the rule: the user moves it in Settings (Requirement
+/// 25.3) and the live value reaches the parse through `isConfidentAt`. This
+/// constant is what the pure `isConfident` getters assume.
 const double kAiConfidenceThreshold = 0.6;
 
 /// The bounds the Settings slider moves [kAiConfidenceThreshold] between.
 ///
-/// Neither end is 0 or 1, on purpose. At 0 the assistant would act on anything,
-/// including a line it pulled no title out of, and would silently create junk
-/// entries; at 1 no parse could ever clear the bar and the assistant would ask a
-/// clarifying question about input it had understood perfectly. Both ends are a
-/// broken assistant the user could reach with one drag and would have no reason
-/// to connect back to this slider.
+/// Neither end is 0 or 1: at 0 the assistant would silently create junk from any
+/// line, at 1 no parse could clear the bar. Both are a broken assistant one drag
+/// away.
 const double kMinAiConfidence = 0.3;
 const double kMaxAiConfidence = 0.9;

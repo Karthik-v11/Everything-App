@@ -13,20 +13,13 @@ part 'search_state.dart';
 
 /// [SearchBloc] owns Global Search (Requirement 17).
 ///
-/// Style A: it holds the current query, the ranked results, and the recent
-/// searches — the last of which is the only slice that persists, so a returning
-/// user's recent queries survive a restart while a stale result list never does.
+/// Recent searches are the only persisted slice — a stale result list must never
+/// survive a restart.
 ///
-/// [SearchQueryChanged] is debounced (`kSearchDebounce`) so a burst of keystrokes
-/// runs one query on the settled text rather than one per character, which is
-/// what keeps as-you-type search inside the < 300 ms budget (Requirement 24.2).
-/// Recent searches are recorded only on an explicit [SubmitSearch] — every
-/// keystroke's prefix is not a search the user meant to keep.
-///
-/// Events:
-/// 1) [SearchQueryChanged] — the text field changed; re-run the search.
-/// 2) [SubmitSearch] — the user pressed enter; record the query as recent.
-/// 3) [RemoveRecentSearch] / [ClearRecentSearches] — manage the recent list.
+/// [SearchQueryChanged] is debounced (`kSearchDebounce`) to keep as-you-type
+/// search inside the < 300 ms budget (Requirement 24.2). Recent searches are
+/// recorded only on an explicit [SubmitSearch], so the history holds queries the
+/// user meant rather than every prefix of them.
 class SearchBloc extends HydratedBloc<SearchEvent, SearchState> {
   SearchBloc({required this.repository}) : super(const SearchState()) {
     on<SearchQueryChanged>(
@@ -40,8 +33,7 @@ class SearchBloc extends HydratedBloc<SearchEvent, SearchState> {
 
   final SearchRepository repository;
 
-  /// The most recent queries kept per user (Requirement 17). Old enough to be a
-  /// history, short enough not to become a second list to scroll.
+  /// How many recent queries are kept (Requirement 17).
   static const int _maxRecent = 8;
 
   FutureOr<void> _onSearchQueryChanged(
@@ -50,8 +42,7 @@ class SearchBloc extends HydratedBloc<SearchEvent, SearchState> {
   ) async {
     final query = event.query;
 
-    // An empty box is the resting state, not a search of nothing: drop straight
-    // back to recent searches rather than running a query.
+    // An empty box drops back to recent searches rather than querying for nothing.
     if (query.isBlank) {
       emit(state.copyWith(query: query, results: const [], hasQuery: false));
       return;
@@ -116,8 +107,7 @@ class SearchBloc extends HydratedBloc<SearchEvent, SearchState> {
     emit(state.copyWith(recentSearches: const []));
   }
 
-  /// Only the recent searches persist. Results are rebuilt from the database on
-  /// the next query, and the in-flight query and loading flag are transient.
+  /// Only the recent searches persist; results are rebuilt on the next query.
   @override
   SearchState? fromJson(Map<String, dynamic> json) => SearchState.fromJson(json);
 

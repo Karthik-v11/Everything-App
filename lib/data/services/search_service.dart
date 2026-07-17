@@ -6,20 +6,18 @@ import 'package:everything_app/data/models/search_result.dart';
 /// [SearchService] runs a Global Search query against the FTS index
 /// (Requirements 17, 24.2).
 ///
-/// Its one job past delegating to [SearchDao] is turning a user's raw text into
-/// a safe FTS5 MATCH expression. Raw input cannot go straight into `MATCH`: `"`,
-/// `*`, `:`, `(`, `-` and `NEAR`/`OR`/`AND` all carry meaning there, so an
-/// unescaped query is at best a syntax error and at worst a query that means
-/// something the user did not type.
+/// Past delegating to [SearchDao], its job is turning raw text into a safe FTS5
+/// MATCH expression: `"`, `*`, `:`, `(`, `-` and `NEAR`/`OR`/`AND` all carry
+/// meaning there, so an unescaped query is at best a syntax error and at worst
+/// one that means something the user did not type.
 class SearchService {
   const SearchService({required this.dao});
 
   final SearchDao dao;
 
-  /// Everything that is not a letter, digit or whitespace — the characters that
-  /// carry syntax in an FTS5 query. Stripping them mirrors the `unicode61`
-  /// tokenizer the index is built with, so the query tokenises the same way the
-  /// content did.
+  /// Everything that carries syntax in an FTS5 query. Stripping it mirrors the
+  /// `unicode61` tokenizer the index is built with, so the query tokenises the
+  /// same way the content did.
   static final RegExp _nonToken = RegExp(r'[^\p{L}\p{N}\s]', unicode: true);
   static final RegExp _whitespace = RegExp(r'\s+');
 
@@ -42,10 +40,8 @@ class SearchService {
     return tokens.map((token) => '$token*').join(' ');
   }
 
-  /// [search] returns the matching results, most relevant first.
-  ///
-  /// A blank or all-punctuation query is not an error — it is an empty result,
-  /// which is what the screen shows before the user has typed anything real.
+  /// [search] returns the matching results, most relevant first. A blank or
+  /// all-punctuation query is an empty result, not an error.
   Future<JsonResponse> search(String query, {int limit = 50}) async {
     if (query.isBlank) {
       return JsonResponse.success(

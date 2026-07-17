@@ -9,21 +9,28 @@ import 'package:everything_app/data/database/app_database.dart';
 import 'package:everything_app/data/models/backup_metadata.dart';
 import 'package:everything_app/data/models/json_response.dart';
 import 'package:everything_app/data/services/security_service.dart';
+// `show compute`: an unrestricted import collides with encrypt's `Key`.
+import 'package:flutter/foundation.dart' show compute;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// [BackupService] exports and restores the whole database as a single encrypted,
 /// integrity-tagged file (Requirement 22).
 ///
-/// **The format is encrypt-then-MAC.** The database is serialised to JSON,
-/// gzipped, encrypted with AES-256-CBC, and then an HMAC-SHA256 tag is computed
-/// over the ciphertext. Restore verifies the tag **before it decrypts anything and
-/// long before it touches the live database** — a damaged or tampered backup is
-/// rejected with the on-device data left exactly as it was (Requirement 22.6). A
-/// round-trip that decrypted first and validated later would already have spent
-/// the attacker's malleability by the time it noticed.
+/// Encrypt-then-MAC: JSON, gzipped, AES-256-CBC, then HMAC-SHA256 over the
+/// ciphertext. Restore verifies the tag before decrypting anything and long
+/// before touching the live database, so a damaged or tampered backup is rejected
+/// with on-device data untouched (Requirement 22.6). Decrypt-then-validate would
+/// already have spent the attacker's malleability by the time it noticed.
 ///
-/// Like every other service it returns [JsonResponse] and never throws.
+/// The keys come from the user's backup PIN, not from this install: `EVB2` carries
+/// the PBKDF2 salt and work factor it was sealed with, so the keys are a pure
+/// function of the PIN and the file's own bytes, and the backup restores on a
+/// reinstall or an unrelated phone. The earlier `EVB1` keyed off a random master
+/// in secure storage, which the OS wipes on uninstall or "clear data" — those
+/// backups failed their MAC and reported tampering when the file was intact and
+/// the key merely gone. [openLegacy] still reads them while that master survives;
+/// everything new is written as `EVB2`.
 ///
 /// The seal/open pair is static and pure so the integrity guarantee can be tested
 /// against the bytes directly (Property 10), with no database in the picture.
@@ -41,30 +48,48 @@ class BackupService {
   /// temporary location. Production resolves the app documents directory.
   final String? backupsDirectoryOverride;
 
-  /// [_magic] tags the envelope so a file that is not one of ours — or a truncated
-  /// one — is refused before any crypto runs.
-  static const String _magic = 'EVB1';
+  /// Tags the envelope so a foreign or truncated file is refused before any crypto
+  /// runs. [_legacyMagic] is the pre-portable format: still read, never written.
+  static const String _magic = 'EVB2';
+  static const String _legacyMagic = 'EVB1';
   static const String _extension = '.evbak';
 
+  static const int _saltLength = 16;
   static const int _ivLength = 16; // AES-CBC block size.
   static const int _macLength = 32; // HMAC-SHA256 output.
-  static const int _headerLength = 4 + _ivLength + _macLength;
+
+  /// `magic ‖ iterations ‖ salt ‖ iv ‖ mac`.
+  static const int _headerLength = 4 + 4 + _saltLength + _ivLength + _macLength;
+  static const int _legacyHeaderLength = 4 + _ivLength + _macLength;
 
   // ── Create (Requirement 22.1) ──────────────────────────────────────────────
 
-  /// [createBackup] snapshots the database and writes one encrypted file.
-  Future<JsonResponse> createBackup() async {
-    final keys = await security.backupKeys();
+  /// Snapshots the database and writes one encrypted file, sealed with [pin].
+  Future<JsonResponse> createBackup({required String pin}) async {
+    final salt = security.backupSalt();
+    const iterations = SecurityService.kBackupPBKDF2Iterations;
+
+    final keys = await SecurityService.backupKeysFor(
+      pin: pin,
+      salt: salt,
+      iterations: iterations,
+    );
     if (!keys.success) return keys;
     final (:encKey, :macKey) = _keysOf(keys);
 
     try {
       final snapshot = await _exportSnapshot();
-      final compressed = gzip.encode(utf8.encode(jsonEncode(snapshot)));
-      final envelope = seal(
-        Uint8List.fromList(compressed),
-        encKey: encKey,
-        macKey: macKey,
+      // Compress and seal off the UI isolate: this serialises and encrypts the
+      // whole database, which is seconds of frozen UI on a large one.
+      final envelope = await compute(
+        _compressAndSeal,
+        (
+          snapshot: snapshot,
+          encKeyBytes: Uint8List.fromList(encKey.bytes),
+          macKey: Uint8List.fromList(macKey),
+          salt: salt,
+          iterations: iterations,
+        ),
       );
 
       final directory = await _resolveDirectory();
@@ -91,8 +116,8 @@ class BackupService {
 
   // ── Restore (Requirement 22.6) ─────────────────────────────────────────────
 
-  /// [restoreFromFile] reads a backup file and applies it.
-  Future<JsonResponse> restoreFromFile(String path) async {
+  /// Reads a backup file and applies it, unsealing with [pin].
+  Future<JsonResponse> restoreFromFile(String path, {required String pin}) async {
     try {
       final file = File(path);
       if (!await file.exists()) {
@@ -101,7 +126,7 @@ class BackupService {
           message: 'That backup no longer exists.',
         );
       }
-      return restoreFromBytes(await file.readAsBytes());
+      return restoreFromBytes(await file.readAsBytes(), pin: pin);
     } on Exception {
       return JsonResponse.failure(
         statusCode: 500,
@@ -110,19 +135,17 @@ class BackupService {
     }
   }
 
-  /// [restoreFromBytes] verifies, decrypts and applies an envelope.
-  ///
-  /// The order is the whole point: [open] checks the HMAC first and returns a
-  /// failure on any mismatch, so a tampered backup never reaches [_importSnapshot]
-  /// and the live database is untouched (Requirement 22.6). The import itself runs
-  /// in a single transaction, so even a valid-but-malformed payload that fails
+  /// Verifies, decrypts and applies an envelope — in that order. [open] checks the
+  /// HMAC first and fails on any mismatch, so a tampered backup never reaches
+  /// [_importSnapshot] and the live database is untouched (Requirement 22.6). The
+  /// import runs in one transaction, so a valid-but-malformed payload that fails
   /// halfway rolls back rather than leaving a half-restored database.
-  Future<JsonResponse> restoreFromBytes(Uint8List bytes) async {
-    final keys = await security.backupKeys();
-    if (!keys.success) return keys;
-    final (:encKey, :macKey) = _keysOf(keys);
-
-    final opened = open(bytes, encKey: encKey, macKey: macKey);
+  Future<JsonResponse> restoreFromBytes(
+    Uint8List bytes, {
+    required String pin,
+  }) async {
+    final opened =
+        _isLegacy(bytes) ? await _openLegacy(bytes) : await open(bytes, pin: pin);
     if (!opened.success) return opened;
 
     try {
@@ -142,7 +165,7 @@ class BackupService {
 
   // ── Manage the local backup set ────────────────────────────────────────────
 
-  /// [listBackups] returns the on-device backups, newest first.
+  /// Returns the on-device backups, newest first.
   Future<JsonResponse> listBackups() async {
     try {
       final directory = await _resolveDirectory();
@@ -186,44 +209,66 @@ class BackupService {
     }
   }
 
+  /// `compute` entry point for [createBackup]: it takes exactly one argument.
+  static Uint8List _compressAndSeal(
+    ({
+      Map<String, dynamic> snapshot,
+      Uint8List encKeyBytes,
+      Uint8List macKey,
+      Uint8List salt,
+      int iterations,
+    }) args,
+  ) =>
+      seal(
+        Uint8List.fromList(gzip.encode(utf8.encode(jsonEncode(args.snapshot)))),
+        encKey: Key(args.encKeyBytes),
+        macKey: args.macKey,
+        salt: args.salt,
+        iterations: args.iterations,
+      );
+
   // ── The sealed envelope (pure, tested directly — Property 10) ───────────────
 
-  /// [seal] wraps [plaintext] as `magic ‖ iv ‖ hmac ‖ ciphertext`.
+  /// Wraps [plaintext] as `magic ‖ iterations ‖ salt ‖ iv ‖ hmac ‖ ciphertext`.
   ///
-  /// The MAC covers the magic, the IV and the ciphertext — everything an attacker
-  /// could otherwise alter without detection.
+  /// The MAC covers the salt and work factor as well as the magic, IV and
+  /// ciphertext: unauthenticated KDF parameters would let someone rewrite the
+  /// iteration count to 1 and hand the file back for the user's own device to
+  /// unseal cheaply.
   static Uint8List seal(
     Uint8List plaintext, {
     required Key encKey,
     required List<int> macKey,
+    required Uint8List salt,
+    required int iterations,
   }) {
     final iv = IV(_randomBytes(_ivLength));
     final encrypter = Encrypter(AES(encKey, mode: AESMode.cbc));
     final ciphertext = encrypter.encryptBytes(plaintext, iv: iv).bytes;
 
-    final header = utf8.encode(_magic);
-    final mac = Hmac(sha256, macKey)
-        .convert([...header, ...iv.bytes, ...ciphertext])
-        .bytes;
+    final header = <int>[
+      ...utf8.encode(_magic),
+      ..._uint32(iterations),
+      ...salt,
+    ];
+    final mac = Hmac(sha256, macKey).convert([...header, ...iv.bytes, ...ciphertext]).bytes;
 
-    return Uint8List.fromList([
-      ...header,
-      ...iv.bytes,
-      ...mac,
-      ...ciphertext,
-    ]);
+    return Uint8List.fromList([...header, ...iv.bytes, ...mac, ...ciphertext]);
   }
 
-  /// [open] verifies the HMAC and only then decrypts (Requirement 22.6).
+  /// Derives the keys from [pin] and the file's own header, verifies the HMAC, and
+  /// only then decrypts (Requirement 22.6). A wrong PIN is indistinguishable from
+  /// a corrupt file at the MAC, so the message names the likelier cause first;
+  /// offline PIN guessing is what [SecurityService.kBackupPBKDF2Iterations] is
+  /// priced against.
   ///
-  /// Returns a failure — never a throw, never a partial result — on a bad magic, a
-  /// short file, or a MAC that does not verify. [JsonResponse.data] on success is
-  /// the decrypted [Uint8List].
-  static JsonResponse open(
+  /// Fails — never throws, never partially succeeds — on a bad magic, a short
+  /// file, or a MAC that does not verify. [JsonResponse.data] on success is the
+  /// decrypted [Uint8List].
+  static Future<JsonResponse> open(
     Uint8List envelope, {
-    required Key encKey,
-    required List<int> macKey,
-  }) {
+    required String pin,
+  }) async {
     try {
       if (envelope.length < _headerLength) {
         return JsonResponse.failure(
@@ -232,39 +277,46 @@ class BackupService {
         );
       }
 
-      final header = envelope.sublist(0, 4);
-      if (!_constantTimeEquals(header, utf8.encode(_magic))) {
+      final header = envelope.sublist(0, 4 + 4 + _saltLength);
+      if (!_constantTimeEquals(header.sublist(0, 4), utf8.encode(_magic))) {
         return JsonResponse.failure(
           statusCode: 422,
           message: 'This is not a valid backup file.',
         );
       }
 
-      final iv = envelope.sublist(4, 4 + _ivLength);
-      final mac = envelope.sublist(4 + _ivLength, _headerLength);
-      final ciphertext = envelope.sublist(_headerLength);
-
-      final expected = Hmac(sha256, macKey)
-          .convert([...header, ...iv, ...ciphertext])
-          .bytes;
-      if (!_constantTimeEquals(mac, expected)) {
+      final iterations = ByteData.sublistView(envelope, 4, 8).getUint32(0);
+      if (iterations <= 0) {
         return JsonResponse.failure(
           statusCode: 422,
-          message: 'This backup is damaged or has been tampered with. '
-              'Nothing was changed.',
+          message: 'This is not a valid backup file.',
         );
       }
 
-      final encrypter = Encrypter(AES(encKey, mode: AESMode.cbc));
-      final plaintext = encrypter.decryptBytes(
-        Encrypted(Uint8List.fromList(ciphertext)),
-        iv: IV(Uint8List.fromList(iv)),
+      final salt = envelope.sublist(8, 8 + _saltLength);
+      final keys = await SecurityService.backupKeysFor(
+        pin: pin,
+        salt: salt,
+        iterations: iterations,
       );
+      if (!keys.success) return keys;
+      final (:encKey, :macKey) = keys.data! as ({Key encKey, List<int> macKey});
 
-      return JsonResponse.success(
-        message: 'Verified.',
-        data: Uint8List.fromList(plaintext),
-      );
+      final ivStart = 4 + 4 + _saltLength;
+      final iv = envelope.sublist(ivStart, ivStart + _ivLength);
+      final mac = envelope.sublist(ivStart + _ivLength, _headerLength);
+      final ciphertext = envelope.sublist(_headerLength);
+
+      final expected =
+          Hmac(sha256, macKey).convert([...header, ...iv, ...ciphertext]).bytes;
+      if (!_constantTimeEquals(mac, expected)) {
+        return JsonResponse.failure(
+          statusCode: 401,
+          message: 'Wrong PIN, or this backup is damaged. Nothing was changed.',
+        );
+      }
+
+      return _decrypt(encKey: encKey, iv: iv, ciphertext: ciphertext);
     } on Exception {
       return JsonResponse.failure(
         statusCode: 422,
@@ -273,16 +325,80 @@ class BackupService {
     }
   }
 
+  /// True for an `EVB1` file — one sealed before backups were keyed by the PIN.
+  static bool _isLegacy(Uint8List envelope) =>
+      envelope.length >= 4 &&
+      _constantTimeEquals(envelope.sublist(0, 4), utf8.encode(_legacyMagic));
+
+  /// Opens an `EVB1` file with the install's stored master key: this device only,
+  /// and only until the master is wiped. Kept so a long-running install can read
+  /// its own history; nothing writes this format.
+  Future<JsonResponse> _openLegacy(Uint8List envelope) async {
+    final keys = await security.backupKeys();
+    if (!keys.success) return keys;
+    final (:encKey, :macKey) = _keysOf(keys);
+
+    try {
+      if (envelope.length < _legacyHeaderLength) {
+        return JsonResponse.failure(
+          statusCode: 422,
+          message: 'This is not a valid backup file.',
+        );
+      }
+
+      final header = envelope.sublist(0, 4);
+      final iv = envelope.sublist(4, 4 + _ivLength);
+      final mac = envelope.sublist(4 + _ivLength, _legacyHeaderLength);
+      final ciphertext = envelope.sublist(_legacyHeaderLength);
+
+      final expected =
+          Hmac(sha256, macKey).convert([...header, ...iv, ...ciphertext]).bytes;
+      if (!_constantTimeEquals(mac, expected)) {
+        return JsonResponse.failure(
+          statusCode: 422,
+          message: 'This backup was made by an older version and can only be '
+              'restored on the device that created it. Nothing was changed.',
+        );
+      }
+
+      return _decrypt(encKey: encKey, iv: iv, ciphertext: ciphertext);
+    } on Exception {
+      return JsonResponse.failure(
+        statusCode: 422,
+        message: 'This backup could not be read.',
+      );
+    }
+  }
+
+  /// The tail both formats share, reached only after a verified MAC.
+  static JsonResponse _decrypt({
+    required Key encKey,
+    required List<int> iv,
+    required List<int> ciphertext,
+  }) {
+    final encrypter = Encrypter(AES(encKey, mode: AESMode.cbc));
+    final plaintext = encrypter.decryptBytes(
+      Encrypted(Uint8List.fromList(ciphertext)),
+      iv: IV(Uint8List.fromList(iv)),
+    );
+    return JsonResponse.success(
+      message: 'Verified.',
+      data: Uint8List.fromList(plaintext),
+    );
+  }
+
+  static Uint8List _uint32(int value) =>
+      Uint8List(4)..buffer.asByteData().setUint32(0, value, Endian.big);
+
   // ── Database snapshot ──────────────────────────────────────────────────────
 
-  /// [_exportSnapshot] reads every drift table into a plain JSON structure.
+  /// Reads every drift table into a plain JSON structure.
   ///
-  /// Iterating [AppDatabase.allTables] keeps this independent of the schema: a
-  /// table added in a later phase is exported with no change here. Every column is
-  /// stored as an `int`/`double`/`String`/`null` (money is minor units, dates are
-  /// unix seconds, enums are their name), so the raw row map is already
-  /// JSON-encodable with no per-type handling. The FTS index and its shadow tables
-  /// are not drift tables, so they are correctly excluded — restore rebuilds them
+  /// Iterating [AppDatabase.allTables] keeps this schema-independent: a new table
+  /// is exported with no change here. Every column is an `int`/`double`/`String`/
+  /// `null` (money in minor units, dates in unix seconds, enums by name), so the
+  /// raw row map is already JSON-encodable. The FTS index and its shadow tables
+  /// are not drift tables and so are correctly excluded — restore rebuilds them
   /// through the triggers.
   Future<Map<String, dynamic>> _exportSnapshot() async {
     final tables = <String, List<Map<String, dynamic>>>{};
@@ -302,15 +418,14 @@ class BackupService {
     };
   }
 
-  /// [_importSnapshot] replaces the database contents with the snapshot, atomically.
+  /// Replaces the database contents with the snapshot, atomically.
   ///
-  /// Foreign keys are deferred to commit time rather than switched off: the whole
-  /// replacement still has to be referentially consistent, but the delete-then-fill
-  /// order no longer has to be topologically sorted. Every write is inside one
-  /// [AppDatabase.transaction], so any failure rolls the database back to where it
-  /// started. The reconciling FTS triggers fire per row and leave the search index
-  /// consistent with the restored data, so no rebuild is needed; drift's stream
-  /// queries are notified once at the end so every open screen re-reads.
+  /// Foreign keys are deferred to commit time rather than switched off: the
+  /// replacement must still be referentially consistent, but the delete-then-fill
+  /// order need not be topologically sorted. Every write is inside one
+  /// [AppDatabase.transaction], so any failure rolls back. The FTS triggers fire
+  /// per row and leave the index consistent, so no rebuild is needed; drift's
+  /// stream queries are notified once at the end so open screens re-read.
   Future<void> _importSnapshot(Map<String, dynamic> snapshot) async {
     final tables = (snapshot['tables'] as Map).cast<String, dynamic>();
     final ordered = database.allTables.toList();
@@ -318,25 +433,33 @@ class BackupService {
     await database.transaction(() async {
       await database.customStatement('PRAGMA defer_foreign_keys = ON');
 
-      for (final table in ordered) {
-        await database.customStatement('DELETE FROM ${table.actualTableName}');
-      }
-
-      for (final table in ordered) {
-        final rows = (tables[table.actualTableName] as List?) ?? const [];
-        for (final row in rows) {
-          final map = (row as Map).cast<String, Object?>();
-          final columns = map.keys.toList();
-          if (columns.isEmpty) continue;
-
-          final placeholders = List.filled(columns.length, '?').join(', ');
-          await database.customStatement(
-            'INSERT INTO ${table.actualTableName} '
-            '(${columns.join(', ')}) VALUES ($placeholders)',
-            [for (final column in columns) map[column]],
-          );
+      // One batch, not one statement per row. Every `await` on a statement is a
+      // full marshal to drift's background isolate and back, so the previous
+      // shape cost one round-trip per restored row — at the 10,000-item scale
+      // Requirement 24.2 contemplates, 10,000 sequential hops inside a single
+      // transaction. `batch` sends the whole restore in one hop, which is the
+      // same reason the index creation in `AppDatabase.beforeOpen` is batched.
+      await database.batch((b) {
+        for (final table in ordered) {
+          b.customStatement('DELETE FROM ${table.actualTableName}');
         }
-      }
+
+        for (final table in ordered) {
+          final rows = (tables[table.actualTableName] as List?) ?? const [];
+          for (final row in rows) {
+            final map = (row as Map).cast<String, Object?>();
+            final columns = map.keys.toList();
+            if (columns.isEmpty) continue;
+
+            final placeholders = List.filled(columns.length, '?').join(', ');
+            b.customStatement(
+              'INSERT INTO ${table.actualTableName} '
+              '(${columns.join(', ')}) VALUES ($placeholders)',
+              [for (final column in columns) map[column]],
+            );
+          }
+        }
+      });
     });
 
     database.markTablesUpdated(ordered);
@@ -361,8 +484,8 @@ class BackupService {
         List<int>.generate(length, (_) => _random.nextInt(256)),
       );
 
-  /// [_constantTimeEquals] compares without short-circuiting, so a MAC check does
-  /// not leak how many leading bytes matched.
+  /// Compares without short-circuiting, so a MAC check does not leak how many
+  /// leading bytes matched.
   static bool _constantTimeEquals(List<int> a, List<int> b) {
     if (a.length != b.length) return false;
     var difference = 0;

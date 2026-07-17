@@ -49,12 +49,12 @@ class TodayTasksWidgetProvider : EverythingWidgetProvider() {
 
         views.setTextViewText(R.id.widget_updated, updatedAt)
 
-        renderRows(views, parseTasks(data.getString("tasks", null)))
+        renderRows(context, views, parseTasks(data.getString("tasks", null)))
 
         openOnTap(context, views, R.id.widget_add, "task/new")
     }
 
-    private fun renderRows(views: RemoteViews, tasks: List<Task>) {
+    private fun renderRows(context: Context, views: RemoteViews, tasks: List<Task>) {
         rowIds.forEachIndexed { index, rowId ->
             val task = tasks.getOrNull(index)
 
@@ -71,11 +71,21 @@ class TodayTasksWidgetProvider : EverythingWidgetProvider() {
                 if (task.dueLabel.isEmpty()) View.GONE else View.VISIBLE,
             )
 
-            views.setImageViewResource(
-                rowId.marker,
-                if (task.isCompleted) R.drawable.widget_check_done
-                else R.drawable.widget_check_open,
+            // "Overdue" in the dim colour reads as a timestamp; it is the one due
+            // label that is not one.
+            views.setTextColor(
+                rowId.due,
+                context.getColor(
+                    if (task.isOverdue) R.color.widget_overdue else R.color.widget_text_dim,
+                ),
             )
+
+            val priority = Priority.of(task.priority)
+            views.setImageViewResource(rowId.marker, priority.marker)
+            // The marker's colour is the only thing carrying priority, which makes
+            // it invisible to a screen reader and to anyone who cannot separate
+            // four hues. The label is what the row says instead.
+            views.setContentDescription(rowId.marker, context.getString(priority.label))
         }
 
         val empty = tasks.isEmpty()
@@ -97,7 +107,8 @@ class TodayTasksWidgetProvider : EverythingWidgetProvider() {
                 Task(
                     title = item.optString("title"),
                     dueLabel = item.optString("dueLabel"),
-                    isCompleted = item.optBoolean("isCompleted"),
+                    isOverdue = item.optBoolean("isOverdue"),
+                    priority = item.optString("priority"),
                 )
             }
         } catch (error: Exception) {
@@ -108,8 +119,34 @@ class TodayTasksWidgetProvider : EverythingWidgetProvider() {
     private data class Task(
         val title: String,
         val dueLabel: String,
-        val isCompleted: Boolean,
+        val isOverdue: Boolean,
+        val priority: String,
     )
+
+    /**
+     * The published priority name mapped to what draws it.
+     *
+     * The names are `TaskPriority`'s enum names, matched as strings across the
+     * process boundary with nothing to check them at compile time — so an
+     * unrecognised one falls back to [MEDIUM] rather than throwing, which is also
+     * what happens to a widget left over from a build before priority was
+     * published. `Task.priority` defaults to medium in Dart too, so the fallback
+     * agrees with the app.
+     */
+    private enum class Priority(
+        val key: String,
+        val marker: Int,
+        val label: Int,
+    ) {
+        LOW("low", R.drawable.widget_check_low, R.string.widget_priority_low),
+        MEDIUM("medium", R.drawable.widget_check_medium, R.string.widget_priority_medium),
+        HIGH("high", R.drawable.widget_check_high, R.string.widget_priority_high),
+        CRITICAL("critical", R.drawable.widget_check_critical, R.string.widget_priority_critical);
+
+        companion object {
+            fun of(key: String): Priority = entries.firstOrNull { it.key == key } ?: MEDIUM
+        }
+    }
 
     private data class RowIds(
         val container: Int,

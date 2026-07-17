@@ -11,20 +11,12 @@ part 'documents_state.dart';
 
 /// [DocumentsBloc] owns the list of documents (Requirement 11).
 ///
-/// Style A: it holds the whole document list and the in-module search query. It
-/// streams **every** document and screens filter it — a project's documents are
-/// [documentsForProject], read on the project screen the same way its tasks are
-/// read from [TasksBloc]. One stream, so a document saved in the editor refreshes
-/// the project screen behind it with no reload.
+/// It streams every document and screens filter it ([documentsForProject]), so a
+/// document saved in the editor refreshes the project screen behind it with no
+/// reload.
 ///
-/// The editing of a single document — its content, dirty state and 30-second
-/// auto-save — belongs to [DocumentBloc], not here, so a save failure in the
+/// Editing a single document belongs to [DocumentBloc], so a save failure in the
 /// editor never puts an error on the state the list renders from.
-///
-/// Events:
-/// 1) [WatchDocumentsEvent] — subscribe to the documents. Fired once.
-/// 2) [SearchDocumentsEvent] — in-module search.
-/// 3) [DeleteDocumentEvent] — remove a document.
 class DocumentsBloc extends Bloc<DocumentsEvent, DocumentsState> {
   DocumentsBloc({required this.repository}) : super(const DocumentsState()) {
     on<WatchDocumentsEvent>(_onWatchDocumentsEvent);

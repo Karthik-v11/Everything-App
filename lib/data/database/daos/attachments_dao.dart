@@ -8,14 +8,10 @@ part 'attachments_dao.g.dart';
 /// [AttachmentsDao] is every statement against the polymorphic `attachments`
 /// table (Requirement 12.2).
 ///
-/// The table has existed since Phase 2 and until now had no writer — `ProjectsDao`
-/// counts and cascades it, but nothing created a row. A shared file is the first
-/// thing that does.
-///
-/// [watchFor] is scoped by owner rather than streaming the whole table the way the
-/// feature DAOs do. Attachments are the one collection with no screen of their
-/// own: they are always read as "this project's files", never as a list, so a
-/// whole-table stream would hand every listener rows it must then filter out.
+/// [watchFor] is scoped by owner rather than streaming the whole table like the
+/// feature DAOs: attachments have no screen of their own and are always read as
+/// "this project's files", so a whole-table stream would hand every listener
+/// rows it must then filter out.
 @DriftAccessor(tables: [AttachmentsTable])
 class AttachmentsDao extends DatabaseAccessor<AppDatabase>
     with _$AttachmentsDaoMixin {
@@ -47,11 +43,8 @@ class AttachmentsDao extends DatabaseAccessor<AppDatabase>
       (delete(attachmentsTable)..where((a) => a.id.equals(id))).go();
 
   /// [totalSizeBytes] is what every attachment on the device adds up to — the
-  /// Library's share of the Storage Usage section (Requirement 25.4).
-  ///
-  /// Summed in SQL rather than by reading the rows: this runs on the Settings
-  /// screen, and a device with a few hundred attachments should not pull every
-  /// row into memory to add one column up.
+  /// Library's share of the Storage Usage section (Requirement 25.4). Summed in
+  /// SQL so a few hundred attachments are not pulled into memory to add up.
   Future<int> totalSizeBytes() async {
     final total = attachmentsTable.sizeBytes.sum();
     final query = selectOnly(attachmentsTable)..addColumns([total]);

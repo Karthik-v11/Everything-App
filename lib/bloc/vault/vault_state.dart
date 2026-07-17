@@ -2,16 +2,13 @@ part of 'vault_bloc.dart';
 
 /// [VaultState] holds everything the Vault screen renders.
 ///
-/// Read the two fields together and the whole design of the vault is visible:
+/// [items] is the list, and **every payload on it is ciphertext** — it can be
+/// filtered, searched, counted and drawn without decrypting anything, which is
+/// what lets the list exist behind Requirements 9.2 and 9.5.
 ///
-/// [items] is the list, and **every payload on it is ciphertext**. It can be
-/// filtered, searched, counted and drawn without decrypting anything, which is what
-/// lets the list exist at all behind Requirements 9.2 and 9.5.
-///
-/// [revealed] is the one item that is currently decrypted, because one detail screen
-/// is currently open. It is a single nullable field rather than a map or a list on
-/// purpose: the type makes it impossible to hold two secrets at once, and it is
-/// cleared the moment that screen closes or the vault re-locks.
+/// [revealed] is the one currently decrypted item. A single nullable field rather
+/// than a map on purpose: the type makes holding two secrets at once impossible.
+/// Cleared the moment the detail screen closes or the vault re-locks.
 class VaultState extends Equatable {
   const VaultState({
     this.isLoading = false,
@@ -55,8 +52,8 @@ class VaultState extends Equatable {
 
   /// [visibleItems] is the list under the active filters and the search query.
   ///
-  /// The search runs over names and types — there is nothing else here to search,
-  /// which is Requirement 9.5 holding by construction rather than by discipline.
+  /// The search runs over names and types only — there is nothing else here to
+  /// search, so Requirement 9.5 holds by construction.
   List<VaultItem> get visibleItems => [
         for (final item in items)
           if (_matches(item)) item,

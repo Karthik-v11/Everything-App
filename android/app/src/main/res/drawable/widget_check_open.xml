@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- An unticked task: the app's priority marker, an outlined ring. -->
+<!--
+  The neutral marker the layout starts with, before TodayTasksWidgetProvider swaps
+  in the row's priority ring. It is what a placed widget shows in the moment
+  between initialLayout and the first onUpdate, so it is deliberately colourless:
+  guessing a priority there would be worse than showing none.
+-->
+
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
     <solid android:color="@android:color/transparent" />

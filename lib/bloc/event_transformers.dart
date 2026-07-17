@@ -2,16 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// [debounce] runs an event handler only after [duration] of quiet.
+/// [debounce] runs an event handler only after [duration] of quiet — each new
+/// event cancels the pending one, so a burst of keystrokes runs the handler once
+/// on the final query rather than on every prefix.
 ///
-/// A burst of events — the keystrokes of a search query — collapses to a single
-/// handler run on the last one, instead of re-filtering and re-emitting the whole
-/// list on every character. Each new event cancels the pending one, so the
-/// handler sees only the final query rather than every prefix of it.
-///
-/// This is written against `dart:async` rather than pulling in `rxdart`
-/// (CLAUDE.md §14 — reuse over adding a competing dependency): the app has no
-/// stream package, and a search box needs only this one operator.
+/// Written against `dart:async` rather than pulling in `rxdart` (CLAUDE.md §14 —
+/// reuse over adding a competing dependency): a search box needs only this one
+/// operator.
 EventTransformer<E> debounce<E>(Duration duration) {
   return (events, mapper) =>
       events.transform(_DebounceStreamTransformer<E>(duration)).asyncExpand(mapper);
@@ -35,8 +32,8 @@ class _DebounceStreamTransformer<T> extends StreamTransformerBase<T, T> {
         },
         onError: controller.addError,
         onDone: () {
-          // A pending event still fires if the source closes before the window
-          // elapses, so the last query is never dropped on teardown.
+          // A pending event is dropped on teardown: the bloc is closing, and
+          // emitting into a closed emitter throws.
           timer?.cancel();
           controller.close();
         },

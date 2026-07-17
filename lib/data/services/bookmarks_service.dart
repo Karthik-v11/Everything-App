@@ -9,8 +9,7 @@ import 'package:uuid/uuid.dart';
 /// [BookmarksService] is the Bookmarks sub-feature's persistence layer
 /// (Requirement 6).
 ///
-/// Drift-backed, with one networked side door: [enrich]. Every method returns a
-/// [JsonResponse] and nothing throws past this layer.
+/// Drift-backed, with one networked side door: [enrich].
 class BookmarksService {
   BookmarksService({required this.dao, required this.metadataService});
 
@@ -27,15 +26,10 @@ class BookmarksService {
 
   /// [create] saves a bookmark **without touching the network** (Requirement 6.1).
   ///
-  /// Everything it needs is derived from the URL: the source type, a readable
-  /// title from the slug, and a thumbnail for the sites that publish one at a
-  /// predictable address. The save is therefore instant and works on a plane,
-  /// which for an offline-first app is the only acceptable behaviour for its most
-  /// common write.
-  ///
-  /// The real title and preview image are a *later* improvement, fetched by
-  /// [enrich] once the row exists and the user is already looking at it. A save
-  /// that waited on a page fetch would be a save that fails when the page is down.
+  /// The source type, title and thumbnail are all derived from the URL, so the
+  /// save is instant and works offline. The real title and preview image are a
+  /// later improvement fetched by [enrich]; a save that waited on a page fetch
+  /// would fail whenever the page is down.
   Future<JsonResponse> create(Bookmark bookmark) async {
     try {
       if (bookmark.url.isBlank) {
@@ -78,7 +72,7 @@ class BookmarksService {
 
   /// [update] saves an edited bookmark, keeping its original [Bookmark.savedAt].
   ///
-  /// The source type is re-derived, because the URL may have changed and a link
+  /// The source type is re-derived: the URL may have changed, and a link
   /// re-pasted as a YouTube video should stop calling itself an article.
   Future<JsonResponse> update(Bookmark bookmark) async {
     try {
@@ -112,14 +106,12 @@ class BookmarksService {
   /// [enrich] fetches the page's real title and preview image and writes them back
   /// (Requirement 6.1).
   ///
-  /// Called after the bookmark is already saved and on screen. It is deliberately
-  /// **not** an error path: offline, or on a page that will not answer, it returns
-  /// a failure the caller is expected to ignore, and the bookmark keeps the title
-  /// and thumbnail derived from its URL. Nothing the user did has failed.
+  /// Not an error path: its failure is one the caller is expected to ignore, and
+  /// the bookmark keeps the values derived from its URL.
   ///
-  /// It re-reads the row before writing. The user may have renamed the bookmark or
-  /// deleted it in the seconds the fetch was in flight, and a title arriving late
-  /// from the network must not overwrite one they typed themselves.
+  /// It re-reads the row before writing — the user may have renamed or deleted the
+  /// bookmark while the fetch was in flight, and a late title must not overwrite
+  /// one they typed.
   Future<JsonResponse> enrich(String id) async {
     try {
       final existing = await dao.findById(id);
@@ -138,9 +130,8 @@ class BookmarksService {
       final metadata = response.data! as UrlMetadata;
       final derived = UrlMetadata.read(bookmark.url);
 
-      // Only what the user has not decided for themselves. A title that still
-      // matches what we guessed from the slug is one nobody has claimed; anything
-      // else was typed, and is not ours to replace.
+      // A title still matching the one guessed from the slug is unclaimed;
+      // anything else was typed by the user and is not ours to replace.
       final prepared = bookmark.copyWith(
         title: bookmark.title == derived.title ? metadata.title : bookmark.title,
         thumbnailUrl: bookmark.thumbnailUrl ?? metadata.thumbnailUrl,

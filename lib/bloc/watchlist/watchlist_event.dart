@@ -13,10 +13,8 @@ class WatchWatchlistEvent extends WatchlistEvent {
   const WatchWatchlistEvent();
 }
 
-/// [FilterWatchlistEvent] narrows by media type and status.
-///
-/// A null field clears that filter, so `const FilterWatchlistEvent()` is "show
-/// everything".
+/// [FilterWatchlistEvent] narrows by media type and status. A null field clears
+/// that filter, so `const FilterWatchlistEvent()` shows everything.
 class FilterWatchlistEvent extends WatchlistEvent {
   const FilterWatchlistEvent({this.mediaType, this.status});
 
@@ -49,11 +47,8 @@ class SaveWatchlistItemEvent extends WatchlistEvent {
 }
 
 /// [SetWatchlistProgressEvent] records how far the user has got
-/// (Requirement 8.2).
-///
-/// [progress] is whatever the UI offered, unclamped. The clamp is
-/// [WatchlistItem.withProgress]'s, so it holds for every writer rather than for the
-/// ones that remembered.
+/// (Requirement 8.2). [progress] is unclamped — [WatchlistItem.withProgress]
+/// owns the clamp so it holds for every writer.
 class SetWatchlistProgressEvent extends WatchlistEvent {
   const SetWatchlistProgressEvent({required this.item, required this.progress});
 

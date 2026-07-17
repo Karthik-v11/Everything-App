@@ -17,10 +17,9 @@ class WatchFinanceEvent extends FinanceEvent {
 
 /// [AccountsUpdatedEvent] carries a new account list in from the account stream.
 ///
-/// Internal: it is dispatched by the bloc's own subscription, never by the UI.
-/// It exists because a handler's emitter is only valid while that handler runs,
-/// so a second long-lived stream has to re-enter through an event rather than
-/// emit from a callback.
+/// Dispatched by the bloc's own subscription, never by the UI: a handler's
+/// emitter is only valid while that handler runs, so a second long-lived stream
+/// must re-enter through an event.
 ///
 /// [hasFailed] marks a stream error, which carries no accounts to show.
 class AccountsUpdatedEvent extends FinanceEvent {
@@ -50,8 +49,8 @@ class SelectMonthEvent extends FinanceEvent {
 
 /// [FilterTransactionsEvent] narrows the transaction list.
 ///
-/// A null value clears that narrowing — which is how tapping a slice of the donut
-/// and then clearing it are the same event (Requirement 13.3).
+/// A null value clears that narrowing, so tapping a donut slice and clearing it
+/// are the same event (Requirement 13.3).
 class FilterTransactionsEvent extends FinanceEvent {
   const FilterTransactionsEvent({
     this.type,

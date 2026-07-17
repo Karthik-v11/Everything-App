@@ -1,15 +1,18 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+import 'package:everything_app/bloc/projects/projects_bloc.dart';
 import 'package:everything_app/bloc/tasks/tasks_bloc.dart';
 import 'package:everything_app/core/utils/constants.dart';
 import 'package:everything_app/core/utils/extensions.dart';
 import 'package:everything_app/core/utils/responsive.dart';
+import 'package:everything_app/data/models/project.dart';
 import 'package:everything_app/data/models/task.dart';
 import 'package:everything_app/view/screens/tasks/task_sheet.dart';
 import 'package:everything_app/view/widgets/app_choice_chip.dart';
 import 'package:everything_app/view/widgets/calendar_strip.dart';
+import 'package:everything_app/view/widgets/completing_task_card.dart';
 import 'package:everything_app/view/widgets/module_app_bar.dart';
-import 'package:everything_app/view/widgets/task_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -20,10 +23,10 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 /// into date sections. The calendar strip and the list are two-way bound: tapping
 /// a day scrolls to that section, and scrolling moves the strip's highlight.
 ///
-/// The focused date is a [ValueNotifier] rather than bloc state because scrolling
-/// changes it many times a second; routing that through [TasksBloc] would rebuild
-/// the list on every frame of a fling. The bloc is told only where the user
-/// settled, which is the date a new task pre-fills as its due date.
+/// The focused date is a [ValueNotifier], not bloc state: scrolling changes it
+/// many times a second and routing that through [TasksBloc] would rebuild the
+/// list on every frame of a fling. The bloc is told only where the user settled,
+/// which is the date a new task pre-fills as its due date.
 class TasksPage extends StatefulWidget {
   const TasksPage({super.key});
 
@@ -52,20 +55,19 @@ class _TasksPageState extends State<TasksPage> {
   /// The day the user tapped in the calendar, held until they scroll the list
   /// themselves.
   ///
-  /// A tap scrolls the list, and the list reports a new position on every frame of
-  /// that scroll. Read back through [_onScrolled], each one looks like the user
-  /// having scrolled there: the highlight is dragged back through every section on
-  /// the way, and settles on whatever section ends up at the top of the viewport —
-  /// which, for the last few days in the list, is not the day that was tapped but
-  /// today. So while a day is pinned the list does not get to move the highlight;
-  /// the next drag unpins it and two-way binding resumes.
+  /// A tap scrolls the list, which reports a new position every frame; read back
+  /// through [_onScrolled] each looks like a user scroll, dragging the highlight
+  /// through every section on the way and settling on whatever ends up at the
+  /// top of the viewport — for the last few days in the list, that is today, not
+  /// the tapped day. While pinned the list cannot move the highlight; the next
+  /// drag unpins it and two-way binding resumes.
   DateTime? _pinnedDate;
 
   @override
   void initState() {
     super.initState();
 
-    _focusedDate = ValueNotifier(DateTime.now().dateOnly);
+    _focusedDate = ValueNotifier(clock.now().dateOnly);
     _positionsListener.itemPositions.addListener(_onScrolled);
   }
 
@@ -220,12 +222,22 @@ class _TasksPageState extends State<TasksPage> {
               ),
               _FilterRow(active: state.filter),
               Expanded(
-                child: _TaskList(
-                  state: state,
-                  items: _items,
-                  scrollController: _scrollController,
-                  positionsListener: _positionsListener,
-                  onUserScroll: _onUserScroll,
+                // Projects are read here rather than in the row so that a change
+                // to the project list rebuilds the list once, not once per card.
+                child: BlocBuilder<ProjectsBloc, ProjectsState>(
+                  buildWhen: (previous, current) =>
+                      previous.projects != current.projects,
+                  builder: (context, projectsState) => _TaskList(
+                    state: state,
+                    items: _items,
+                    projects: {
+                      for (final project in projectsState.projects)
+                        project.id: project,
+                    },
+                    scrollController: _scrollController,
+                    positionsListener: _positionsListener,
+                    onUserScroll: _onUserScroll,
+                  ),
                 ),
               ),
             ],
@@ -302,8 +314,8 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Held at the header's height, so opening search does not lift the calendar
-    // strip and the list under it.
+    // Fixed to the header's height, so opening search does not lift the
+    // calendar strip and the list under it.
     if (isSearching) {
       return SizedBox(
         height: ModuleAppBar.height,
@@ -330,14 +342,6 @@ class _Header extends StatelessWidget {
       );
     }
 
-    // FilledButton.icon(
-    //   onPressed: () => showTaskSheet(context),
-    //   icon: const Icon(Icons.add_rounded, size: 18),
-    //   label: const Text('Add task'),
-    //   style: FilledButton.styleFrom(
-    //     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-    //   ),
-    // ),
     return ModuleAppBar(
       title: 'Tasks',
       actions: [
@@ -346,6 +350,12 @@ class _Header extends StatelessWidget {
           icon: const Icon(Icons.search_rounded),
           color: context.colors.onSurfaceVariant,
           tooltip: 'Search tasks',
+        ),
+        IconButton(
+          onPressed: () => showTaskSheet(context),
+          icon: const Icon(Icons.add_rounded),
+          color: context.colors.primary,
+          tooltip: 'Add task',
         ),
       ],
     );
@@ -374,9 +384,9 @@ class _FilterRow extends StatelessWidget {
             child: AppChoiceChip(
               label: filter.label,
               isSelected: filter == active,
-              onSelected: (_) => context
-                  .read<TasksBloc>()
-                  .add(ChangeFilterEvent(filter: filter)),
+              onSelected: (_) => context.read<TasksBloc>().add(
+                ChangeFilterEvent(filter: filter),
+              ),
             ),
           );
         },
@@ -389,6 +399,7 @@ class _TaskList extends StatelessWidget {
   const _TaskList({
     required this.state,
     required this.items,
+    required this.projects,
     required this.scrollController,
     required this.positionsListener,
     required this.onUserScroll,
@@ -396,6 +407,9 @@ class _TaskList extends StatelessWidget {
 
   final TasksState state;
   final List<_ListItem> items;
+
+  /// The projects a task can be filed under, by id.
+  final Map<String, Project> projects;
   final ItemScrollController scrollController;
   final ItemPositionsListener positionsListener;
 
@@ -430,7 +444,12 @@ class _TaskList extends StatelessWidget {
 
           return switch (item) {
             _HeaderItem() => _SectionHeader(item: item),
-            _TaskItem() => _TaskRow(task: item.task, state: state),
+            _TaskItem() => _TaskRow(
+              key: ValueKey(item.task.id),
+              task: item.task,
+              state: state,
+              project: projects[item.task.projectId],
+            ),
           };
         },
       ),
@@ -471,10 +490,16 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _TaskRow extends StatelessWidget {
-  const _TaskRow({required this.task, required this.state});
+  const _TaskRow({
+    required this.task,
+    required this.state,
+    required this.project,
+    super.key,
+  });
 
   final Task task;
   final TasksState state;
+  final Project? project;
 
   @override
   Widget build(BuildContext context) {
@@ -493,12 +518,12 @@ class _TaskRow extends StatelessWidget {
       ),
       onDismissed: (_) =>
           context.read<TasksBloc>().add(DeleteTaskEvent(id: task.id)),
-      child: TaskCard(
+      // Every filter lists tasks of one completion state, so a ticked task
+      // always leaves the list: the card owns that exit animation.
+      child: CompletingTaskCard(
         task: task,
         category: state.categoryOf(task),
-        onToggle: (isCompleted) => context.read<TasksBloc>().add(
-              ToggleTaskCompletionEvent(task: task, isCompleted: isCompleted),
-            ),
+        project: project,
         onTap: () => showTaskSheet(context, task: task),
       ),
     );
@@ -523,7 +548,9 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              isNarrowed ? Icons.filter_alt_off_rounded : Icons.task_alt_rounded,
+              isNarrowed
+                  ? Icons.filter_alt_off_rounded
+                  : Icons.task_alt_rounded,
               size: 40,
               color: context.colors.onSurfaceVariant,
             ),

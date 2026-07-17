@@ -11,20 +11,9 @@ part 'auth_state.dart';
 
 /// [AuthBloc] gates access to the app (Requirement 1).
 ///
-/// Style A: it holds persistent state (locked / unlocked, lockout counters) that
-/// many events update in different slices.
-///
-/// It is not a [HydratedBloc]: a persisted `isUnlocked` would restore the app in
-/// the unlocked state on the next launch. The lockout counters do survive a
-/// restart, but in secure storage via [SecurityService], not here.
-///
-/// Events:
-/// 1) [CheckAuthEvent] — decides at startup whether to gate at all.
-/// 2) [AuthenticateBiometricEvent] — fingerprint / face (Requirement 1.2).
-/// 3) [SubmitPINEvent] — PIN fallback (Requirement 1.3, 1.4).
-/// 4) [SetPINEvent] — first-run PIN creation.
-/// 5) [RemovePINEvent] — removes the app lock, gated on the current PIN.
-/// 6) [LockEvent] — auto-lock on resume (Requirement 1.5).
+/// Deliberately not a [HydratedBloc]: a persisted `isUnlocked` would restore the
+/// app unlocked on the next launch. The lockout counters do survive a restart,
+/// but in secure storage via [SecurityService], not here.
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc({required this.repository}) : super(const AuthState()) {
     on<CheckAuthEvent>(_onCheckAuthEvent);
@@ -37,13 +26,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   final AuthRepository repository;
 
-  /// [_backgroundedAt] is when the app last went to the background. It lives in
-  /// the bloc rather than the state because it is bookkeeping, not something the
-  /// UI renders.
+  /// When the app last went to the background. Bookkeeping, not rendered, so it
+  /// lives in the bloc rather than the state.
   DateTime? _backgroundedAt;
 
-  /// [markBackgrounded] is called from the lifecycle listener when the app is
-  /// backgrounded, so a later [LockEvent] can tell how long it was away.
+  /// Called from the lifecycle listener on background, so a later [LockEvent]
+  /// can tell how long the app was away.
   void markBackgrounded() => _backgroundedAt = DateTime.now();
 
   FutureOr<void> _onCheckAuthEvent(
@@ -53,16 +41,27 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     try {
       emit(state.copyWith(isLoading: true, error: '', message: ''));
 
-      // Concurrent, not sequential: two keychain reads and a pair of local_auth
-      // platform calls that know nothing about each other. Awaited one after the
-      // other they cost three round-trips, and the whole tree is held behind the
-      // surface colour for all three — this is the single event standing between
-      // launch and anything being on screen.
-      final (hasPIN, biometricAvailable, lockout) = await (
+      // Concurrent: these are independent, and this event is the only thing
+      // standing between launch and the first frame — sequential awaits cost
+      // round-trips of blank screen.
+      //
+      // `isBiometricAvailable` is deliberately not in this group. It is two
+      // sequential platform channel calls into the OS biometric subsystem — the
+      // slowest of the three, where the other two are keychain reads — and the
+      // gate does not need it: it decides whether the *lock screen* draws a
+      // fingerprint button. With no PIN the lock screen never renders and the
+      // answer is discarded, so it is resolved after the gate opens instead.
+      final (hasPIN, lockout) = await (
         repository.hasPIN(),
-        repository.isBiometricAvailable(),
         repository.lockoutStatus(),
       ).wait;
+
+      // With a PIN it must be awaited after all: [LockPage] reads it once in a
+      // post-frame callback to decide whether to prompt on mount, so resolving
+      // it later would race that read and silently drop the auto-prompt. This
+      // costs nothing in the common case, where there is no PIN.
+      final biometricAvailable =
+          hasPIN ? await repository.isBiometricAvailable() : false;
 
       // With no PIN there is nothing to authenticate against, so the app opens
       // unlocked. The lock becomes active only once a PIN is set in Settings.
@@ -78,6 +77,15 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           clearLockedUntil: lockout.lockedUntil == null,
         ),
       );
+
+      // Resolved off the critical path for the no-PIN case: the Vault reads it
+      // to offer biometric unlock, and it is reached long after this settles.
+      if (!hasPIN) {
+        final available = await repository.isBiometricAvailable();
+        if (!isClosed) {
+          emit(state.copyWith(isBiometricAvailable: available));
+        }
+      }
     } on Exception {
       // Unreadable security settings unlock rather than brick the app: the data
       // is protected by the database key, not by this gate. The error is shown.
@@ -180,9 +188,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  /// [_onRemovePINEvent] removes the app lock. The app stays unlocked: with no
-  /// PIN there is nothing to authenticate against, and [_onLockEvent] will not
-  /// lock a PIN-less app.
+  /// Removes the app lock. The app stays unlocked: with no PIN there is nothing
+  /// to authenticate against, and [_onLockEvent] will not lock a PIN-less app.
   FutureOr<void> _onRemovePINEvent(
     RemovePINEvent event,
     Emitter<AuthState> emit,
@@ -226,12 +233,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  /// [_onLockEvent] re-locks the app (Requirement 1.5).
-  ///
-  /// [LockEvent.force] bypasses the duration check — used when the user locks
-  /// manually. Otherwise the app only locks if it was backgrounded for longer
-  /// than [kAutoLockDuration], so briefly switching apps does not force a
-  /// re-authentication.
+  /// Re-locks the app (Requirement 1.5). [LockEvent.force] (a manual lock)
+  /// bypasses the duration check; otherwise the app locks only after
+  /// [kAutoLockDuration] backgrounded, so a brief app switch does not re-prompt.
   FutureOr<void> _onLockEvent(LockEvent event, Emitter<AuthState> emit) {
     if (!state.hasPIN) return null;
 

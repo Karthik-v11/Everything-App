@@ -10,26 +10,20 @@ part 'backup_state.dart';
 
 /// [BackupBloc] owns the Backup, Restore & Export section (Requirement 22).
 ///
-/// Style A, hydrated: it accumulates the automatic-backup preference, the last
-/// backup time and the current file list. The preference and the timestamp
-/// persist; the list is re-read from disk each launch.
+/// The auto-backup preference and last-backup time are hydrated; the file list is
+/// re-read from disk each launch.
 ///
-/// **Automatic backup is opportunistic, not a background job.** A true scheduled
-/// task belongs to the platform worker introduced in Phase 12 (WorkManager /
-/// BGTask); until then, [InitBackupEvent] takes an overdue backup at launch when
-/// the feature is on. That covers the common case — an app opened most days keeps
-/// a recent backup — without a second, native moving part, and it composes with a
-/// real scheduler later rather than being replaced by one.
+/// Automatic backup is opportunistic, not a background job: with no platform worker
+/// (WorkManager / BGTask), [InitBackupEvent] takes an overdue backup at launch when
+/// the feature is on.
 ///
-/// Events:
-/// 1) [InitBackupEvent] — load the list; back up if one is overdue.
-/// 2) [CreateBackupEvent] — back up now.
-/// 3) [RestoreBackupEvent] — verify and apply a backup (Requirement 22.6).
-/// 4) [DeleteBackupEvent] — remove a backup file.
-/// 5) [ToggleAutoBackupEvent] — turn automatic backup on or off.
+/// Every backup is sealed with the user's backup PIN, so nothing here runs before
+/// one is set. The file carries its own KDF salt, so the PIN alone unseals it on any
+/// phone and no key has to survive an uninstall for a restore to work.
 class BackupBloc extends HydratedBloc<BackupEvent, BackupState> {
   BackupBloc({required this.repository}) : super(const BackupState()) {
     on<InitBackupEvent>(_onInitBackupEvent);
+    on<SetBackupPINEvent>(_onSetBackupPINEvent);
     on<CreateBackupEvent>(_onCreateBackupEvent);
     on<RestoreBackupEvent>(_onRestoreBackupEvent);
     on<DeleteBackupEvent>(_onDeleteBackupEvent);
@@ -46,13 +40,41 @@ class BackupBloc extends HydratedBloc<BackupEvent, BackupState> {
     InitBackupEvent event,
     Emitter<BackupState> emit,
   ) async {
+    emit(state.copyWith(hasBackupPIN: await repository.hasBackupPIN()));
     await _refreshList(emit);
 
     final last = state.lastBackupAt;
     final isOverdue =
         last == null || DateTime.now().difference(last) >= autoBackupInterval;
-    if (state.isAutoBackupEnabled && isOverdue) {
+
+    // No PIN means nothing to seal with; the Settings tile asks for one. Skipping
+    // quietly leaves the preference on, so a backup happens once a PIN exists.
+    if (state.isAutoBackupEnabled && state.hasBackupPIN && isOverdue) {
       await _createBackup(emit, isAutomatic: true);
+    }
+  }
+
+  FutureOr<void> _onSetBackupPINEvent(
+    SetBackupPINEvent event,
+    Emitter<BackupState> emit,
+  ) async {
+    emit(state.copyWith(isLoading: true, error: '', message: ''));
+
+    try {
+      final response = await repository.setBackupPIN(event.pin);
+      emit(
+        response.success
+            ? state.copyWith(
+                isLoading: false,
+                hasBackupPIN: true,
+                message: response.message,
+              )
+            : state.copyWith(isLoading: false, error: response.message),
+      );
+    } on Exception {
+      emit(
+        state.copyWith(isLoading: false, error: 'Could not save your backup PIN.'),
+      );
     }
   }
 
@@ -65,9 +87,8 @@ class BackupBloc extends HydratedBloc<BackupEvent, BackupState> {
 
   /// [_onRestoreBackupEvent] verifies and applies a backup (Requirement 22.6).
   ///
-  /// A failed integrity check comes back from the repository as a plain failure
-  /// with the live data untouched, so it is surfaced like any other error — there
-  /// is no separate "was anything changed?" branch, because on failure nothing was.
+  /// A failed integrity check returns a plain failure with the live data untouched,
+  /// so it needs no separate "was anything changed?" branch.
   FutureOr<void> _onRestoreBackupEvent(
     RestoreBackupEvent event,
     Emitter<BackupState> emit,
@@ -75,7 +96,7 @@ class BackupBloc extends HydratedBloc<BackupEvent, BackupState> {
     emit(state.copyWith(isRestoring: true, error: '', message: ''));
 
     try {
-      final response = await repository.restoreFromFile(event.path);
+      final response = await repository.restoreFromFile(event.path, pin: event.pin);
       emit(
         response.success
             ? state.copyWith(isRestoring: false, message: response.message)
@@ -117,9 +138,9 @@ class BackupBloc extends HydratedBloc<BackupEvent, BackupState> {
       ),
     );
 
-    // Turning it on with nothing to fall back to is the moment to take the first
-    // one — otherwise the switch says "protected" while no backup exists.
-    if (event.isEnabled && state.lastBackupAt == null) {
+    // Take the first backup on enable, or the switch says "protected" while none
+    // exists.
+    if (event.isEnabled && state.hasBackupPIN && state.lastBackupAt == null) {
       await _createBackup(emit, isAutomatic: true);
     }
   }
@@ -131,7 +152,13 @@ class BackupBloc extends HydratedBloc<BackupEvent, BackupState> {
     emit(state.copyWith(isLoading: true, error: '', message: ''));
 
     try {
-      final response = await repository.createBackup();
+      final pin = await repository.backupPIN();
+      if (!pin.success) {
+        emit(state.copyWith(isLoading: false, error: pin.message));
+        return;
+      }
+
+      final response = await repository.createBackup(pin: pin.data! as String);
       if (!response.success) {
         emit(state.copyWith(isLoading: false, error: response.message));
         return;

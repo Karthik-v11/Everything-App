@@ -14,11 +14,7 @@ part 'connectivity_state.dart';
 /// and News), to choose between a fetch and their cached payload, and by the Sync
 /// service to know when to run (Requirement 21.4).
 ///
-/// Style A: a single persistent state that many listeners read.
-///
-/// Events:
-/// 1) [WatchConnectivityEvent] — subscribes to the platform connectivity stream.
-///    Dispatched once at startup with `lazy: false`.
+/// [WatchConnectivityEvent] is dispatched once at startup with `lazy: false`.
 class ConnectivityBloc extends Bloc<ConnectivityEvent, ConnectivityState> {
   ConnectivityBloc({required this.connectivity})
       : super(const ConnectivityState()) {

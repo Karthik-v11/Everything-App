@@ -13,11 +13,8 @@ class WatchToBuyEvent extends ToBuyEvent {
   const WatchToBuyEvent();
 }
 
-/// [FilterToBuyEvent] narrows the list.
-///
-/// [showPurchased] defaults to false: the point of the screen is what has *not*
-/// been bought yet, and a list that leads with a month of ticked-off items buries
-/// it.
+/// [FilterToBuyEvent] narrows the list. [showPurchased] defaults to false — the
+/// screen is about what has not been bought yet.
 class FilterToBuyEvent extends ToBuyEvent {
   const FilterToBuyEvent({this.showPurchased = false, this.priority});
 
@@ -76,10 +73,9 @@ class DeleteToBuyItemEvent extends ToBuyEvent {
 
 /// [SyncToBuyRemindersEvent] rebuilds the reminder schedule (Requirement 7.3).
 ///
-/// [settings] is non-null only when [SettingsBloc] is the one dispatching it —
-/// pushing the user's configuration across rather than having this bloc read
-/// another bloc's state (CLAUDE.md §4.4). Everywhere else it is null, and the
-/// configuration already held in the state is used.
+/// [settings] is non-null only when [SettingsBloc] dispatches it, pushing the
+/// configuration across rather than reading another bloc's state (CLAUDE.md §4.4).
+/// Null elsewhere, where the state's own copy is used.
 class SyncToBuyRemindersEvent extends ToBuyEvent {
   const SyncToBuyRemindersEvent({this.settings});
 

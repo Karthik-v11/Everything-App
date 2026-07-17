@@ -85,26 +85,10 @@ class ChangeSummaryWeekdayEvent extends SettingsEvent {
 /// [ToggleHomeWidgetsEvent] switches the home screen widgets on or off
 /// (Requirement 13).
 ///
-/// Off empties the shared container rather than merely stopping the refresh —
-/// the switch exists so the data can leave the one store in this app that is
-/// readable without the database key.
+/// Off empties the shared container rather than merely stopping the refresh: the
+/// data leaves the one store in this app readable without the database key.
 class ToggleHomeWidgetsEvent extends SettingsEvent {
   const ToggleHomeWidgetsEvent({required this.isEnabled});
-
-  final bool isEnabled;
-
-  @override
-  List<Object?> get props => [isEnabled];
-}
-
-/// [ToggleOnDeviceAiEvent] switches the on-device model on or off (Phase 13).
-///
-/// Off unloads the model rather than setting a flag the assistant consults, so
-/// the assistant falls back to the rule-based engine because there is genuinely
-/// nothing loaded — see [OnDeviceModelBloc]. It never downloads: switching on
-/// with no weights on disk offers the download and states its cost.
-class ToggleOnDeviceAiEvent extends SettingsEvent {
-  const ToggleOnDeviceAiEvent({required this.isEnabled});
 
   final bool isEnabled;
 
@@ -116,8 +100,7 @@ class ToggleOnDeviceAiEvent extends SettingsEvent {
 /// (Requirement 25.3).
 ///
 /// [confidence] is clamped to `kMinAiConfidence`…`kMaxAiConfidence` by the
-/// handler; the ends of that range are an assistant that acts on everything or
-/// asks about everything.
+/// handler; the ends of that range act on everything or ask about everything.
 class ChangeAiConfidenceEvent extends SettingsEvent {
   const ChangeAiConfidenceEvent({required this.confidence});
 

@@ -2,10 +2,9 @@ part of 'backup_bloc.dart';
 
 /// [BackupState] holds the backup section's state (Requirement 22).
 ///
-/// Style A: independent slices — the automatic-backup preference, the last backup
-/// time, and the current list — updated via [copyWith]. Only the first two are
-/// persisted; [backups] is re-read from the filesystem on launch, since a file
-/// deleted by the OS or another install would make a remembered list a lie.
+/// Only the auto-backup preference and last backup time are persisted; [backups] is
+/// re-read from the filesystem on launch, since a file deleted by the OS or another
+/// install would make a remembered list wrong.
 class BackupState extends Equatable {
   const BackupState({
     this.isLoading = false,
@@ -13,14 +12,15 @@ class BackupState extends Equatable {
     this.error = '',
     this.message = '',
     this.isAutoBackupEnabled = false,
+    this.hasBackupPIN = false,
     this.lastBackupAt,
     this.backups = const [],
   });
 
   final bool isLoading;
 
-  /// Kept apart from [isLoading] so the restore confirmation can block the whole
-  /// screen while a backup is merely creating in the background.
+  /// Kept apart from [isLoading] so a restore can block the whole screen while a
+  /// backup merely creates in the background.
   final bool isRestoring;
 
   final String error;
@@ -28,6 +28,11 @@ class BackupState extends Equatable {
 
   /// Whether an overdue backup is taken automatically at launch (Requirement 22.4).
   final bool isAutoBackupEnabled;
+
+  /// Whether a backup PIN has been chosen. Read from secure storage at launch, never
+  /// persisted here: a remembered `true` would outlive an uninstall that cleared the
+  /// keystore.
+  final bool hasBackupPIN;
 
   /// When the most recent backup was written, or null if none has been.
   final DateTime? lastBackupAt;
@@ -40,6 +45,7 @@ class BackupState extends Equatable {
     String? error,
     String? message,
     bool? isAutoBackupEnabled,
+    bool? hasBackupPIN,
     DateTime? lastBackupAt,
     List<BackupMetadata>? backups,
   }) =>
@@ -49,6 +55,7 @@ class BackupState extends Equatable {
         error: error ?? this.error,
         message: message ?? this.message,
         isAutoBackupEnabled: isAutoBackupEnabled ?? this.isAutoBackupEnabled,
+        hasBackupPIN: hasBackupPIN ?? this.hasBackupPIN,
         lastBackupAt: lastBackupAt ?? this.lastBackupAt,
         backups: backups ?? this.backups,
       );
@@ -74,6 +81,7 @@ class BackupState extends Equatable {
         error,
         message,
         isAutoBackupEnabled,
+        hasBackupPIN,
         lastBackupAt,
         backups,
       ];

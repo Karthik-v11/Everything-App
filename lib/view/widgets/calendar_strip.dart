@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:everything_app/core/utils/extensions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -302,7 +303,7 @@ class _WeekdayLabels extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Any Monday will do; only the weekday names are read off it.
-    final monday = DateTime.now().startOfWeek;
+    final monday = clock.now().startOfWeek;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),

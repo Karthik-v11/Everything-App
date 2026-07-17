@@ -13,33 +13,46 @@ enum FontSize {
 
 /// [AppTextStyles] builds the app's [TextTheme].
 ///
-/// The typography follows the reference UI:
-/// - **Serif** for headings ("Good Morning, Karthik!", "Today").
+/// The typography follows the reference UI, and it is **two families, not
+/// three**:
+/// - **Outfit** for everything that is words — headings and body alike.
 /// - **Monospace** for labels, dates and amounts ("Tasks", "03", "₹15000").
-/// - **Sans** for body copy.
+///
+/// Outfit is a geometric sans and cannot carry a heading by contrast of family
+/// the way the serif it replaces did, so the heading slots buy that contrast
+/// with weight and tighter tracking instead (see [heading]). The mono/words
+/// split is what the reference UI is actually doing, and it survives.
 ///
 /// Widgets must read styles via `Theme.of(context).textTheme.*` and never
 /// construct a [TextStyle] from scratch.
+///
+/// Neither bundled family carries `₹` (U+20B9), so the platform's own font
+/// supplies it and the symbol renders a shade off the digits beside it. Accepted
+/// deliberately: it is one glyph, it has always been the case in the mono slots,
+/// and the alternative is bundling a third family to draw it. A golden has no
+/// platform fallback to reach for, so `₹` records as a tofu box there — the
+/// boxes in `test/view/goldens/` are that, not a broken layout.
 ///
 /// DO NOT MODIFY.
 class AppTextStyles {
   const AppTextStyles._();
 
-  static const String serifFamily = 'NotoSerif';
   static const String monoFamily = 'JetBrainsMono';
-  static const String sansFamily = 'Inter';
+  static const String sansFamily = 'Outfit';
 
-  /// [serif] is the heading family.
-  static TextStyle serif({
+  /// [heading] is [sans] at the weight and tracking that make a heading read as
+  /// one without a second family to lean on.
+  static TextStyle heading({
     double size = 24,
     FontWeight weight = FontWeight.w700,
     Color? color,
   }) =>
       TextStyle(
-        fontFamily: serifFamily,
+        fontFamily: sansFamily,
         fontSize: size,
         fontWeight: weight,
         color: color,
+        letterSpacing: -0.4,
       );
 
   /// [mono] is the label / numeric family.
@@ -70,10 +83,10 @@ class AppTextStyles {
         color: color,
       );
 
-  /// [textTheme] maps the three families onto Material 3's slots.
+  /// [textTheme] maps the two families onto Material 3's slots.
   ///
-  /// - `display*` / `headline*` → serif
-  /// - `title*` / `body*` → sans
+  /// - `display*` / `headline*` → Outfit, heavy and tight ([heading])
+  /// - `title*` / `body*` → Outfit
   /// - `label*` → mono
   ///
   /// [scale] applies the user's [FontSize] preference to every slot at once.
@@ -83,12 +96,12 @@ class AppTextStyles {
     required double scale,
   }) =>
       TextTheme(
-        displayLarge: AppTextStyles.serif(size: 32 * scale, color: primary),
-        displayMedium: AppTextStyles.serif(size: 28 * scale, color: primary),
-        displaySmall: AppTextStyles.serif(size: 24 * scale, color: primary),
-        headlineLarge: AppTextStyles.serif(size: 24 * scale, color: primary),
-        headlineMedium: AppTextStyles.serif(size: 21 * scale, color: primary),
-        headlineSmall: AppTextStyles.serif(size: 18 * scale, color: primary),
+        displayLarge: AppTextStyles.heading(size: 32 * scale, color: primary),
+        displayMedium: AppTextStyles.heading(size: 28 * scale, color: primary),
+        displaySmall: AppTextStyles.heading(size: 24 * scale, color: primary),
+        headlineLarge: AppTextStyles.heading(size: 24 * scale, color: primary),
+        headlineMedium: AppTextStyles.heading(size: 21 * scale, color: primary),
+        headlineSmall: AppTextStyles.heading(size: 18 * scale, color: primary),
         titleLarge: AppTextStyles.sans(
           size: 17 * scale,
           weight: FontWeight.w600,

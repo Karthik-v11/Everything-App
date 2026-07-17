@@ -167,10 +167,9 @@ class BudgetAlert extends Equatable {
 /// [BudgetStatus] is a budget, what has been spent against it, and everything
 /// that follows from the two.
 ///
-/// It is a **pure** value: it takes no repository, touches no clock, and reads no
-/// bloc. That is what lets Property 8's threshold rule be tested exhaustively
-/// without a database — and what stops the rule from being restated, slightly
-/// differently, by the progress bar, the alert and the test.
+/// A pure value: no repository, no clock, no bloc — so Property 8's threshold
+/// rule is stated once here rather than by the progress bar, the alert and the
+/// test separately.
 class BudgetStatus extends Equatable {
   const BudgetStatus({
     required this.budget,
@@ -245,10 +244,9 @@ class BudgetStatus extends Equatable {
   /// [alerts] is everything the user should be told right now (Requirements 14.3,
   /// 14.4, 14.5).
   ///
-  /// The monthly budget contributes at most one — a budget that is exceeded is not
-  /// also warned about. Category limits contribute one each, on exceeding only:
-  /// Requirement 14.5 asks for no category warning, and one notification per
-  /// category at 80% is how an app teaches its user to swipe them away.
+  /// The monthly budget contributes at most one — an exceeded budget is not also
+  /// warned about. Category limits contribute one each, on exceeding only
+  /// (Requirement 14.5 asks for no category warning).
   List<BudgetAlert> get alerts {
     final monthly = level;
 

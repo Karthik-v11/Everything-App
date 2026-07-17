@@ -65,8 +65,7 @@ class Bookmark extends Equatable {
   final String? folderId;
   final DateTime savedAt;
 
-  /// [host] is what the card shows under the title — the shortest honest answer
-  /// to "where does this go".
+  /// [host] is what the card shows under the title.
   String get host => UrlMetadata.hostOf(url) ?? url;
 
   /// [matches] is the in-memory search predicate: title, URL, tags
@@ -148,15 +147,13 @@ class Bookmark extends Equatable {
       ];
 }
 
-/// [UrlMetadata] is everything about a link that can be known **without asking the
-/// network** — its source type, a readable title, and for the sites whose
-/// thumbnail URLs are a function of the link itself, a thumbnail.
+/// [UrlMetadata] is everything about a link that can be known without asking the
+/// network — source type, a readable title, and a thumbnail for the sites whose
+/// thumbnail URL is a function of the link itself.
 ///
-/// This exists because the app is offline-first and a bookmark save must never
-/// wait on, or fail because of, a page fetch. The save is made from this
-/// immediately; `MetadataService` then enriches the row in the background if the
-/// device happens to have a connection. A user on a plane gets a bookmark with a
-/// sensible title and the right icon, not a spinner and then an error.
+/// A bookmark save must never wait on, or fail because of, a page fetch: the save
+/// is made from this immediately, and `MetadataService` enriches the row in the
+/// background if there is a connection.
 class UrlMetadata extends Equatable {
   const UrlMetadata({
     required this.title,
@@ -248,11 +245,13 @@ class UrlMetadata extends Equatable {
     return BookmarkSource.website;
   }
 
-  /// [_titleOf] is a placeholder title, used until a real one is known.
-  ///
-  /// The last path segment, tidied: `/blog/why-flutter-scales` reads as "Why
-  /// Flutter Scales", which is almost always the page's actual title and is always
-  /// better than the raw URL.
+  static final RegExp _pageExtension = RegExp(r'\.(html?|php|aspx?)$');
+  static final RegExp _slugSeparator = RegExp(r'[-_+]');
+  static final RegExp _anyLetter = RegExp('[a-zA-Z]');
+
+  /// [_titleOf] is a placeholder title, used until a real one is known: the last
+  /// path segment, tidied — `/blog/why-flutter-scales` reads as "Why Flutter
+  /// Scales".
   static String _titleOf(Uri? uri, String host) {
     if (uri == null) return host.isEmpty ? 'Bookmark' : host;
 
@@ -263,12 +262,12 @@ class UrlMetadata extends Equatable {
     if (segments.isEmpty) return host;
 
     final last = segments.last
-        .replaceAll(RegExp(r'\.(html?|php|aspx?)$'), '')
-        .replaceAll(RegExp(r'[-_+]'), ' ')
+        .replaceAll(_pageExtension, '')
+        .replaceAll(_slugSeparator, ' ')
         .trim();
 
     // An id, a hash or a slug of digits says nothing; the host says more.
-    if (last.isEmpty || !RegExp('[a-zA-Z]').hasMatch(last)) return host;
+    if (last.isEmpty || !_anyLetter.hasMatch(last)) return host;
 
     return last
         .split(' ')

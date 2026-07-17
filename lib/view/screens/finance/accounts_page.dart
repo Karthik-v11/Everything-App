@@ -25,6 +25,8 @@ class AccountsPage extends StatelessWidget {
           IconButton(
             onPressed: () => _editAccount(context),
             icon: const Icon(Icons.add_rounded),
+                      color: context.colors.primary,
+
             tooltip: 'Add account',
           ),
         ],

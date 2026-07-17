@@ -5,14 +5,11 @@ import 'package:everything_app/data/database/app_database.dart';
 /// [AttachmentOwner] is what an attachment hangs off.
 ///
 /// The `attachments` table is polymorphic — `ownerType` + `ownerId` — so this
-/// enum is the closed set of legal `ownerType` values. It is a type rather than a
-/// raw string because a typo in one call site would file an attachment against an
-/// owner nothing ever queries, and it would be invisible until someone noticed a
-/// file had vanished.
+/// enum is the closed set of legal `ownerType` values. A raw string would let a
+/// typo file an attachment against an owner nothing ever queries.
 ///
-/// Only [project] is written today: a shared file is attached to a project
-/// (Requirement 12.2). The other three are what the column was designed for and
-/// are added by the screens that grow an attach button.
+/// Only [project] is written today (Requirement 12.2); the other three are what
+/// the column was designed for.
 enum AttachmentOwner {
   task,
   transaction,

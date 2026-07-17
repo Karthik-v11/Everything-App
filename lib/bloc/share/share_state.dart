@@ -3,10 +3,9 @@ part of 'share_bloc.dart';
 /// [ShareState] is the pending share and the chooser's status
 /// (Requirement 12).
 ///
-/// It is **not** hydrated, deliberately. A share is a live handoff from another
-/// app: the file paths in it point into OS-owned temporary storage that is gone
-/// by the next launch, so a persisted pending share would restore a chooser
-/// offering to file something that no longer exists.
+/// Deliberately not hydrated: a share's file paths point into OS-owned
+/// temporary storage that is gone by the next launch, so a persisted pending
+/// share would restore a chooser for files that no longer exist.
 class ShareState extends Equatable {
   const ShareState({
     this.isLoading = false,
@@ -26,10 +25,8 @@ class ShareState extends Equatable {
 
   final bool isChooserOpen;
 
-  /// [kind] is what is being filed. Mixed shares are rare enough — and a mixed
-  /// destination list meaningless enough — that the first item decides, and any
-  /// item the chosen destination cannot take is skipped rather than failing the
-  /// whole share.
+  /// What is being filed. The first item decides for mixed shares; items the
+  /// chosen destination cannot take are skipped rather than failing the share.
   SharedKind? get kind => pending.isEmpty ? null : pending.first.kind;
 
   /// [destinations] is what the chooser offers for the pending share.

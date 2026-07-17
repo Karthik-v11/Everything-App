@@ -5,11 +5,10 @@ import 'package:everything_app/data/models/project.dart';
 import 'package:everything_app/data/models/task.dart';
 import 'package:uuid/uuid.dart';
 
-/// [ProjectContents] is what a project holds, and therefore what deleting it would
-/// destroy (Requirement 10.4).
+/// [ProjectContents] is what deleting a project would destroy (Requirement 10.4).
 ///
 /// [projects] counts the sub-projects that would go with it, so the confirmation
-/// can say "and 3 sub-projects" rather than leaving the user to discover it.
+/// can name them rather than leaving the user to discover them.
 class ProjectContents {
   const ProjectContents({
     required this.projects,
@@ -23,8 +22,8 @@ class ProjectContents {
   final int documents;
   final int attachments;
 
-  /// [isEmpty] is a project with nothing under it — which is deleted without a
-  /// confirmation worth reading, because there is nothing to warn about.
+  /// [isEmpty] is a project with nothing under it, so it is deleted without a
+  /// confirmation — there is nothing to warn about.
   bool get isEmpty =>
       projects == 0 && tasks == 0 && documents == 0 && attachments == 0;
 
@@ -120,12 +119,10 @@ class ProjectsService {
     }
   }
 
-  /// [contentsOf] is what deleting [project] would take with it — the counts the
-  /// confirmation dialog reads (Requirement 10.4).
+  /// [contentsOf] is the counts the confirmation dialog reads (Requirement 10.4).
   ///
-  /// [tree] is passed in because the descendants are a fact about the *whole*
-  /// project list, which this service does not hold: the bloc streams it, so the
-  /// bloc is where the tree can be built.
+  /// [tree] is passed in because descendants are a fact about the whole project
+  /// list, which this service does not hold — the bloc streams it.
   Future<JsonResponse> contentsOf({
     required Project project,
     required ProjectTree tree,
@@ -155,14 +152,12 @@ class ProjectsService {
 
   /// [delete] removes a project and everything under it (Requirement 10.4).
   ///
-  /// The sub-projects are resolved from [tree] and deleted with it. Deleting only
-  /// the row the user tapped would leave its children pointing at a parent that no
-  /// longer exists — projects still in the database, appearing on no screen, and
-  /// reachable by nothing.
+  /// Sub-projects are resolved from [tree] and deleted with it; deleting only the
+  /// tapped row would strand its children under a parent that no longer exists,
+  /// on no screen and reachable by nothing.
   ///
-  /// The confirmation is the caller's, and it is not optional: this method is the
-  /// destructive one, and by the time it is called the user has already been told
-  /// exactly what [contentsOf] found.
+  /// The confirmation is the caller's and is not optional — this is the
+  /// destructive path, and the user must already have seen what [contentsOf] found.
   Future<JsonResponse> delete({
     required Project project,
     required ProjectTree tree,

@@ -12,23 +12,9 @@ part 'projects_state.dart';
 
 /// [ProjectsBloc] owns the Projects sub-feature (Requirement 10).
 ///
-/// Style A: it holds the project list, the search query, and the pending delete
-/// confirmation.
-///
-/// It streams **every** project at every depth and rebuilds the tree in memory
-/// ([ProjectTree]). One flat query serves the hub's root list, a project's children,
-/// its breadcrumb and the cascade a delete would take — four questions that would
-/// otherwise be four queries kept in step by hand, and a database round trip every
-/// time a disclosure arrow was tapped.
-///
-/// Events:
-/// 1) [WatchProjectsEvent] — subscribe to the projects. Fired once.
-/// 2) [SearchProjectsEvent] — in-module search.
-/// 3) [SaveProjectEvent] — create or update, sub-projects included.
-/// 4) [MoveProjectEvent] — re-parent, refusing a move into the project's own branch.
-/// 5) [ConfirmDeleteProjectEvent] — count what a delete would destroy.
-/// 6) [DeleteProjectEvent] — delete it and everything under it.
-/// 7) [CancelDeleteProjectEvent] — the user backed out.
+/// It streams every project at every depth and rebuilds the tree in memory
+/// ([ProjectTree]), so one flat query serves the hub's root list, a project's
+/// children, its breadcrumb and the cascade a delete would take.
 class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
   ProjectsBloc({required this.repository}) : super(const ProjectsState()) {
     on<WatchProjectsEvent>(_onWatchProjectsEvent);
@@ -109,12 +95,10 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
   /// [_onConfirmDeleteProjectEvent] counts what deleting [project] would destroy
   /// (Requirement 10.4).
   ///
-  /// The counts go into the state rather than being fetched by the dialog, because
-  /// a dialog that reads the database is a widget doing the repository's job. The
-  /// screen shows the confirmation when [ProjectsState.pendingDelete] appears.
-  ///
-  /// This is a *read*. Nothing is deleted until [DeleteProjectEvent], which is what
-  /// the user's confirmation dispatches.
+  /// This is a read: nothing is deleted until [DeleteProjectEvent], which the user's
+  /// confirmation dispatches. The counts go into the state — the screen shows the
+  /// confirmation when [ProjectsState.pendingDelete] appears — rather than being
+  /// fetched by the dialog.
   FutureOr<void> _onConfirmDeleteProjectEvent(
     ConfirmDeleteProjectEvent event,
     Emitter<ProjectsState> emit,

@@ -228,15 +228,13 @@ const List<Color> kCategoryPalette = <Color>[
 
 /// [categoryColor] is the colour a category takes in **every** finance chart.
 ///
-/// The same category has to be the same colour in the pie, the trend line, the
-/// bars and the list, or the legend stops meaning anything.
+/// The same category must be the same colour in every chart or the legend stops
+/// meaning anything.
 ///
-/// A starter category takes the palette entry at its own index, so no two of them
-/// can collide — a hash over a palette shorter than the category list cannot
-/// promise that, and two slices of the same colour make the legend a guess. A
-/// category the user invents is hashed into the entries the starter set left
-/// over, so it is coloured without a migration and keeps that colour as other
-/// categories come and go around it.
+/// A starter category takes the palette entry at its own index, so no two can
+/// collide — a hash over a palette shorter than the category list cannot promise
+/// that. A user's own category is hashed into the entries the starter set left
+/// over, so it keeps its colour as other categories come and go.
 Color categoryColor(String category) {
   final known = kTransactionCategories.indexWhere(
     (entry) => entry.name.toLowerCase() == category.toLowerCase(),
@@ -338,9 +336,8 @@ const Map<String, List<String>> _kCategoryKeywords = {
 /// text says nothing a category can be pinned on.
 ///
 /// Keyword matching on word boundaries rather than a model: it runs on every
-/// keystroke, it has to be right or silent (a wrong guess the user then has to
-/// undo is worse than no guess), and the vocabulary above covers what people
-/// actually type into a one-line expense field.
+/// keystroke and must be right or silent — a wrong guess the user has to undo is
+/// worse than no guess.
 ///
 /// The caller decides what to do with a null and must not overrule a category the
 /// user picked by hand.

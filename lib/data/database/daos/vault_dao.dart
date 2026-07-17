@@ -8,10 +8,9 @@ part 'vault_dao.g.dart';
 
 /// [VaultDao] is every SQL statement the Vault issues (Requirement 9).
 ///
-/// Nothing here encrypts or decrypts anything: it moves `encryptedPayload` in and
-/// out as an opaque string, and the cipher lives in `SecurityService`. That is what
-/// keeps the two concerns separable — the database layer cannot leak a plaintext it
-/// has never held.
+/// Nothing here encrypts or decrypts: `encryptedPayload` moves in and out as an
+/// opaque string and the cipher lives in `SecurityService`, so the database layer
+/// cannot leak a plaintext it has never held.
 ///
 /// It shares [FoldersTable] with [BookmarksDao], so every folder statement here is
 /// scoped to [FolderScope.vault].
@@ -47,11 +46,9 @@ class VaultDao extends DatabaseAccessor<AppDatabase> with _$VaultDaoMixin {
   Future<void> upsertFolder(FoldersTableCompanion folder) =>
       into(foldersTable).insertOnConflictUpdate(folder);
 
-  /// [deleteFolder] removes a folder and returns its items to the top level.
-  ///
-  /// The items are kept, as in [BookmarksDao.deleteFolder] and for a stronger
-  /// reason: a vault item is something the user chose to store because losing it
-  /// would hurt, and a folder delete is not a request to lose it.
+  /// [deleteFolder] removes a folder and returns its items to the top level. The
+  /// items are kept, as in [BookmarksDao.deleteFolder]: a folder delete is not a
+  /// request to lose an unrecoverable secret.
   Future<void> deleteFolder(String id) => transaction(() async {
         await (update(vaultItemsTable)..where((v) => v.folderId.equals(id)))
             .write(const VaultItemsTableCompanion(folderId: Value(null)));

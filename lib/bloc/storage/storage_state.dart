@@ -1,10 +1,7 @@
 part of 'storage_bloc.dart';
 
 /// [StorageState] is the Storage Usage section's state (Requirement 25.4).
-///
-/// **Style B**, as a Dart 3 `sealed class`, so the section's builder is an
-/// exhaustive `switch` and a state added later cannot be forgotten at the one
-/// place that renders it.
+/// Sealed, so the section's builder is an exhaustive `switch`.
 sealed class StorageState extends Equatable {
   const StorageState();
 
@@ -12,14 +9,12 @@ sealed class StorageState extends Equatable {
   List<Object?> get props => [];
 }
 
-/// [StorageInitial] is before the section has been opened. Nothing has been
-/// measured and nothing is being measured.
+/// [StorageInitial] is before the section has been opened.
 class StorageInitial extends StorageState {
   const StorageInitial();
 }
 
-/// [StorageLoading] is a measurement in flight. It carries no data — a partial
-/// breakdown is not a breakdown.
+/// [StorageLoading] is a measurement in flight.
 class StorageLoading extends StorageState {
   const StorageLoading();
 }

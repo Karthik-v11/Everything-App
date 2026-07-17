@@ -66,9 +66,9 @@ class ClearRevealedEvent extends VaultEvent {
 
 /// [SaveVaultItemEvent] creates or updates an item.
 ///
-/// [secret] is the plaintext, and it is always supplied: the payload on [item] is
-/// ciphertext the caller cannot produce, so the service rewrites it from this rather
-/// than trusting whatever the model arrived with.
+/// [secret] is the plaintext and is always supplied: the payload on [item] is
+/// ciphertext the caller cannot produce, so the service rewrites it from this
+/// rather than trusting whatever the model arrived with.
 class SaveVaultItemEvent extends VaultEvent {
   const SaveVaultItemEvent({required this.item, required this.secret});
 

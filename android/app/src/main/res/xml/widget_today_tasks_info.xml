@@ -7,9 +7,14 @@
   It redraws from what the app last published; it cannot re-read the database (see
   EverythingWidgetProvider). resizeMode lets one provider serve the small, medium
   and large placements rather than shipping three near-identical widgets.
+
+  previewLayout is a separate sample layout, not initialLayout: the picker binds no
+  data, so previewing the real one draws empty rows. See widget_finance_info.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_today_tasks"
+    android:previewLayout="@layout/widget_today_tasks_preview"
+    android:previewImage="@mipmap/ic_launcher"
     android:minWidth="180dp"
     android:minHeight="110dp"
     android:targetCellWidth="4"

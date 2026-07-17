@@ -2,9 +2,8 @@ part of 'news_bloc.dart';
 
 /// [NewsState] is the headlines the app last knew, per category, and when.
 ///
-/// [articles] and [fetchedAt] are keyed by category and persisted together: a
-/// cached list without the time it arrived cannot be told from a fresh one, and
-/// would never be refreshed.
+/// [articles] and [fetchedAt] must persist together — a cached list without its
+/// arrival time cannot be told from a fresh one, and would never be refreshed.
 class NewsState extends Equatable {
   const NewsState({
     this.isLoading = false,
@@ -25,24 +24,21 @@ class NewsState extends Equatable {
   final Map<NewsCategory, List<Article>> articles;
   final Map<NewsCategory, DateTime> fetchedAt;
 
-  /// [visibleArticles] is what the open tab shows.
   List<Article> get visibleArticles => articles[category] ?? const [];
 
   bool hasArticles(NewsCategory category) =>
       (articles[category] ?? const []).isNotEmpty;
 
-  /// [isStale] is true when a category has never been fetched or was fetched
-  /// longer ago than [kStaleCacheThreshold]. It decides both whether a tab
-  /// re-fetches and whether the Dashboard admits to showing saved data.
+  /// True when a category has never been fetched or is older than
+  /// [kStaleCacheThreshold]. Decides both re-fetch and the saved-data banner.
   bool isStale(NewsCategory category) {
     final at = fetchedAt[category];
     if (at == null) return true;
-    return DateTime.now().difference(at) > kStaleCacheThreshold;
+    return clock.now().difference(at) > kStaleCacheThreshold;
   }
 
-  /// [isCurrentStale] is [isStale] for the open tab, but only once there is
-  /// something cached to *be* stale — an empty tab is not stale, it is empty, and
-  /// a banner over nothing explains nothing.
+  /// [isStale] for the open tab, but only once something is cached — an empty tab
+  /// is empty, not stale, and gets no banner.
   bool get isCurrentStale => hasArticles(category) && isStale(category);
 
   NewsState copyWith({
@@ -62,8 +58,8 @@ class NewsState extends Equatable {
         fetchedAt: fetchedAt ?? this.fetchedAt,
       );
 
-  /// [fromJson] restores the cached headlines. The open tab is not restored: the
-  /// Dashboard opens on All, which is what a user coming back to it expects.
+  /// Restores the cached headlines. The open tab is deliberately not restored —
+  /// the Dashboard always opens on All.
   factory NewsState.fromJson(Map<String, dynamic> json) {
     final cached = json['HydratedArticles'] as Map<String, dynamic>? ?? const {};
     final times = json['HydratedFetchedAt'] as Map<String, dynamic>? ?? const {};

@@ -61,13 +61,11 @@ enum NotificationKind {
 
   /// [taskKinds] is the slice of the OS queue the Tasks module owns.
   ///
-  /// [NotificationService.applyPlan] reconciles by *cancelling anything pending
-  /// that its plan does not contain*, which is what stops a reminder outliving
-  /// the task it belongs to. That rule only holds if each reconciler is told which
-  /// notifications are its to cancel: without this partition, the Tasks sync would
-  /// cancel every to-buy reminder the moment it ran, the To-Buy sync would cancel
-  /// every task reminder back, and the two would erase each other's alarms on
-  /// every write. A module reconciles its own kinds and leaves the rest alone.
+  /// [NotificationService.applyPlan] cancels anything pending that its plan does
+  /// not contain, so each reconciler must be told which kinds are its to cancel.
+  /// Without this partition the Tasks sync would cancel every to-buy reminder and
+  /// the To-Buy sync every task reminder, erasing each other's alarms on every
+  /// write.
   static const Set<NotificationKind> taskKinds = {
     NotificationKind.reminder,
     NotificationKind.deadline,
@@ -90,10 +88,9 @@ enum NotificationKind {
 
   /// [isBudget] is the third channel (Requirement 14).
   ///
-  /// The budget alerts are the only kinds that are **not** scheduled: the moment
-  /// they become true is the moment the user writes the transaction that makes
-  /// them true, so they are delivered immediately rather than planned into the OS
-  /// queue. That is why they never appear in [NotificationPlan].
+  /// The budget alerts are the only kinds not scheduled: they become true the
+  /// moment the user writes the transaction that makes them true, so they are
+  /// delivered immediately and never appear in [NotificationPlan].
   bool get isBudget =>
       this == NotificationKind.budgetWarning ||
       this == NotificationKind.budgetExceeded ||
@@ -164,10 +161,9 @@ class NotificationSettings extends Equatable {
   ///
   /// Only the kinds that were switchable at write time are recorded in
   /// [_knownKindsKey]. Without it, every kind absent from `enabledKinds` would
-  /// look like one the user had turned off — so a kind added in a later build
-  /// (the budget alerts, in Phase 5) would arrive silently disabled for everyone
-  /// who already had settings on disk, and no toggle in Settings would explain
-  /// why nothing was being delivered.
+  /// look like one the user had turned off, so a kind added in a later build
+  /// would arrive silently disabled for everyone who already had settings on
+  /// disk.
   factory NotificationSettings.fromJson(Map<String, dynamic> json) {
     final enabled = {
       for (final name in (json['enabledKinds'] as List?) ?? const [])

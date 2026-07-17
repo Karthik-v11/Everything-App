@@ -94,7 +94,7 @@ class BudgetsPage extends StatelessWidget {
                             budget: budget,
                           ),
                           icon: const Icon(Icons.edit_outlined, size: 16),
-                          label: const Text('Change limit'),
+                          label: const Text('Change limit', style: TextStyle(fontSize: 12)),
                         ),
                         const Gap(8),
                         OutlinedButton.icon(
@@ -105,7 +105,7 @@ class BudgetsPage extends StatelessWidget {
                             categories: finance.categories,
                           ),
                           icon: const Icon(Icons.add_rounded, size: 16),
-                          label: const Text('Category limit'),
+                          label: const Text('Category limit', style: TextStyle(fontSize: 12)),
                         ),
                       ],
                     ),

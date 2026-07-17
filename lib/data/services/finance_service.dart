@@ -9,12 +9,11 @@ import 'package:uuid/uuid.dart';
 /// [FinanceService] is the Finance module's persistence layer (Requirements
 /// 12–14).
 ///
-/// Drift-backed rather than Dio-backed, but keeps the standard service contract:
-/// every method returns [JsonResponse] and nothing throws past this layer.
+/// Drift-backed, but keeps the standard service contract: every method returns
+/// [JsonResponse] and nothing throws past this layer.
 ///
-/// Validation lives here rather than in the blocs, so that every entry point —
-/// the form today, the AI parser and the share intent later — is subject to the
-/// same rules.
+/// Validation lives here rather than in the blocs, so every entry point — the
+/// form, the AI parser, the share intent — is subject to the same rules.
 class FinanceService {
   FinanceService({required this.dao});
 
@@ -38,10 +37,9 @@ class FinanceService {
 
   /// [createTransaction] inserts a transaction.
   ///
-  /// The amount must be positive and the title non-blank. The **sign is not the
-  /// user's to give**: direction is carried by [Transaction.type], so a negative
-  /// amount is a bug rather than an expense, and is rejected here rather than
-  /// silently flipping a summary total (Property 6, Property 7).
+  /// The amount must be positive and the title non-blank. Direction is carried by
+  /// [Transaction.type], so a negative amount is a bug rather than an expense and
+  /// is rejected rather than silently flipping a summary total (Properties 6, 7).
   Future<JsonResponse> createTransaction(Transaction transaction) async {
     try {
       final invalid = _validate(transaction);
@@ -183,10 +181,9 @@ class FinanceService {
 
   /// [deleteAccount] removes an account, or archives it if it has history.
   ///
-  /// Deleting an account that transactions point at would leave those rows
-  /// naming an account that no longer exists — and with it every balance and
-  /// filter that reads them. An account with history is therefore archived: it
-  /// disappears from the pickers and keeps explaining the past.
+  /// Deleting one that transactions point at would leave those rows — and every
+  /// balance and filter reading them — naming an account that no longer exists.
+  /// An archived account leaves the pickers but keeps explaining the past.
   Future<JsonResponse> deleteAccount(Account account) async {
     try {
       final used = await dao.countTransactionsForAccount(account.id);
@@ -219,9 +216,8 @@ class FinanceService {
 
   /// [saveBudget] sets the limit for one month (Requirements 14.1, 14.2).
   ///
-  /// One budget per month is an invariant, so an existing budget for the month is
-  /// updated in place rather than joined by a second one that would silently
-  /// halve or double every percentage on the screen.
+  /// One budget per month is an invariant, so an existing one is updated in place
+  /// rather than joined by a second that would skew every percentage on screen.
   Future<JsonResponse> saveBudget(Budget budget) async {
     try {
       if (budget.monthlyLimitMinor < 0) {

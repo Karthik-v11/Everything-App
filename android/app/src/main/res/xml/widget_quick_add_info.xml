@@ -2,9 +2,15 @@
 <!--
   No updatePeriodMillis: this widget draws no data, so there is nothing to refresh
   and a periodic wake would be pure battery cost (Requirement 24.4).
+
+  Unlike the other two, previewLayout points straight at the real layout — drawing
+  no data is exactly why it previews correctly with none bound, so a sample copy
+  would be a second file to keep in step for no gain.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_quick_add"
+    android:previewLayout="@layout/widget_quick_add"
+    android:previewImage="@mipmap/ic_launcher"
     android:minWidth="250dp"
     android:minHeight="60dp"
     android:targetCellWidth="4"

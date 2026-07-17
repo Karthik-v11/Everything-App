@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:clock/clock.dart';
 import 'package:equatable/equatable.dart';
 import 'package:everything_app/bloc/event_transformers.dart';
 import 'package:everything_app/core/utils/extensions.dart';
@@ -17,31 +18,14 @@ part 'tasks_state.dart';
 
 /// [TasksBloc] owns the Tasks module (Requirement 4).
 ///
-/// Style A: it holds the task list, the selected date, the active filter and the
-/// search query.
+/// It subscribes once to the DAO stream via [WatchTasksEvent] and never re-reads:
+/// every write returns through that stream, so no screen needs a reload event and
+/// none can drift from the database. Filtering and searching run in memory over
+/// the streamed list, keeping the stream the single source of truth.
 ///
-/// It subscribes once to the DAO stream via [WatchTasksEvent] and never re-reads.
-/// Every write — a completion, an edit, a recurrence rollover — goes to the
-/// database and returns through that stream, so no screen needs a reload event
-/// and none can drift out of sync with the database.
-///
-/// Filtering and searching are applied in memory over the streamed list, which
-/// keeps the stream as the single source of truth.
-///
-/// Notifications (Requirement 5) are scheduled from here for the same reason.
-/// The bloc already holds the database's own view of every task, so the schedule
-/// is derived from that view rather than written alongside each task edit. A
-/// reminder therefore cannot outlive the task it belongs to: whatever the stream
-/// says, the OS queue is made to match (see [SyncRemindersEvent]).
-///
-/// Events:
-/// 1) [WatchTasksEvent] — subscribe to tasks and categories. Fired once at start.
-/// 2) [SelectDateEvent] — the calendar strip.
-/// 3) [ChangeFilterEvent] — Today / Tomorrow / Upcoming / Completed / Overdue.
-/// 4) [SearchTasksEvent] — in-module search (Requirement 4.10).
-/// 5) [ToggleTaskCompletionEvent] — the checkbox (Requirement 4.6).
-/// 6) [DeleteTaskEvent] — remove a task.
-/// 7) [SyncRemindersEvent] — rebuild the notification schedule (Requirement 5).
+/// Notifications (Requirement 5) are scheduled from here because this bloc already
+/// holds the database's view of every task, so the OS queue is made to match the
+/// stream and a reminder cannot outlive its task (see [SyncRemindersEvent]).
 class TasksBloc extends HydratedBloc<TasksEvent, TasksState> {
   TasksBloc({
     required this.repository,
@@ -64,15 +48,13 @@ class TasksBloc extends HydratedBloc<TasksEvent, TasksState> {
 
   /// True while a stream-triggered reschedule is already queued but has not run.
   ///
-  /// One user action can write several tasks at once — a recurrence rollover
-  /// completes one task and inserts its successor, a future bulk edit touches
-  /// many — and each write comes back through [watchAll]'s stream. Rebuilding the
-  /// whole [NotificationPlan] and diffing it against the OS queue once per write
-  /// in that burst is wasted work on the UI isolate. This coalesces the burst:
-  /// the first write queues the sync, the rest are skipped, and the single run
-  /// sees every task the burst wrote. It gates only the stream path — a
-  /// settings-carrying [SyncRemindersEvent] from [SettingsBloc] never sets it and
-  /// so is never skipped.
+  /// One user action can write several tasks at once (a recurrence rollover
+  /// completes one and inserts its successor), and each write returns through
+  /// [watchAll]'s stream. This coalesces the burst — the first write queues the
+  /// sync, the rest are skipped, and the single run sees every task the burst
+  /// wrote — rather than rebuilding and diffing the whole [NotificationPlan] once
+  /// per write on the UI isolate. It gates only the stream path: a
+  /// settings-carrying [SyncRemindersEvent] never sets it and is never skipped.
   bool _reschedulePending = false;
 
   FutureOr<void> _onWatchTasksEvent(
@@ -97,11 +79,10 @@ class TasksBloc extends HydratedBloc<TasksEvent, TasksState> {
     await emit.forEach<List<Task>>(
       repository.watchAll(),
       onData: (tasks) {
-        // Every write in the app — from this bloc, from the form, from anything
-        // added later — comes back through this stream, so this is the one place
-        // that has to ask for a reschedule. onData cannot await, so the work is
-        // queued as an event rather than done inline. A burst of writes queues
-        // exactly one sync (see [_reschedulePending]).
+        // Every write in the app comes back through this stream, so this is the
+        // one place that asks for a reschedule. onData cannot await, so the work
+        // is queued as an event. A burst queues exactly one sync
+        // (see [_reschedulePending]).
         if (!_reschedulePending) {
           _reschedulePending = true;
           add(const SyncRemindersEvent());
@@ -193,14 +174,12 @@ class TasksBloc extends HydratedBloc<TasksEvent, TasksState> {
   /// [_onSyncRemindersEvent] rebuilds the OS notification schedule from the task
   /// list and the user's settings (Requirement 5).
   ///
-  /// It runs on every change to the task list and on every settings change, and
-  /// it is idempotent: the plan is the desired end state, and the service cancels
-  /// or schedules only the difference. Running it more often than necessary costs
-  /// one query of the pending queue and nothing else.
+  /// Idempotent: the plan is the desired end state and the service cancels or
+  /// schedules only the difference, so an extra run costs one queue query.
   ///
-  /// It does nothing until [SettingsBloc] has reported the user's configuration.
-  /// Scheduling against the defaults first would fire a burst of reminders at a
-  /// user who had switched them off, and cancel them a moment later.
+  /// Does nothing until [SettingsBloc] has reported the user's configuration —
+  /// scheduling against the defaults first would fire a burst of reminders at a
+  /// user who had switched them off.
   FutureOr<void> _onSyncRemindersEvent(
     SyncRemindersEvent event,
     Emitter<TasksState> emit,

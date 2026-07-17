@@ -6,27 +6,24 @@ import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart';
 import 'package:everything_app/core/utils/constants.dart';
 import 'package:everything_app/data/models/json_response.dart';
+// `show compute`: an unrestricted import collides with encrypt's `Key`.
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
-/// [kPBKDF2Iterations] is the PIN hashing work factor. Raising it slows every
-/// brute-force guess by the same proportion as a legitimate unlock.
+/// PIN hashing work factor. Raising it slows every brute-force guess by the same
+/// proportion as a legitimate unlock.
 const int kPBKDF2Iterations = 120000;
 
 /// [SecurityService] owns every secret the app holds and the gate in front of
-/// them (Requirements 1 and 23).
-///
-/// Three responsibilities:
-/// 1) The database encryption key — generated once, then held in the platform
-///    keychain (iOS) / keystore-backed EncryptedSharedPreferences (Android).
-/// 2) The PIN — stored only as a salted PBKDF2 hash, never as plaintext.
-/// 3) The lockout after repeated PIN failures (Requirement 1.4).
-///
-/// Like every other service it returns [JsonResponse] and never throws.
+/// them (Requirements 1 and 23): the database encryption key (generated once,
+/// held in the platform keychain / keystore-backed EncryptedSharedPreferences),
+/// the PIN (stored only as a salted PBKDF2 hash, never plaintext), and the
+/// lockout after repeated PIN failures (Requirement 1.4).
 class SecurityService {
-  /// [iterations] is the PBKDF2 work factor. It is a parameter only so tests can
-  /// lower it; production always uses [kPBKDF2Iterations]. The value used is
-  /// stored alongside each hash, so changing it never invalidates existing PINs.
+  /// [iterations] is a parameter only so tests can lower it; production uses
+  /// [kPBKDF2Iterations]. Each hash stores the factor it was written with, so
+  /// changing it never invalidates existing PINs.
   SecurityService({
     required this.storage,
     required this.localAuth,
@@ -40,19 +37,16 @@ class SecurityService {
   static const int _keyLengthBytes = 32; // 256-bit
   static const int _saltLengthBytes = 16;
 
-  /// The GCM nonce length. 96 bits is what the mode is specified around — a
-  /// different length is legal but is hashed down to this one internally, for no
-  /// benefit.
+  /// The GCM nonce length. 96 bits is what the mode is specified around; another
+  /// length is legal but is hashed down to this one internally, for no benefit.
   static const int _ivLengthBytes = 12;
 
   // ── Database key ───────────────────────────────────────────────────────────
 
-  /// [databaseKey] returns the SQLCipher key, generating it on first launch.
-  ///
-  /// The key is 256 bits from [Random.secure], the OS CSPRNG. It is not derived
-  /// from the PIN: a 4-digit PIN carries ~13 bits of entropy, which would make the
-  /// encryption at rest worthless. The PIN gates the UI; this key protects the
-  /// file.
+  /// Returns the SQLCipher key, generating it on first launch: 256 bits from the
+  /// OS CSPRNG. Not derived from the PIN — a 4-digit PIN carries ~13 bits of
+  /// entropy, which would make encryption at rest worthless. The PIN gates the
+  /// UI; this key protects the file.
   Future<JsonResponse> databaseKey() async {
     try {
       final existing = await storage.read(key: kDatabaseKey);
@@ -73,26 +67,21 @@ class SecurityService {
 
   // ── Vault item key (Requirement 9.1) ───────────────────────────────────────
 
-  /// [_kVaultKey] is the secure-storage entry holding the vault's 256-bit key.
-  ///
-  /// It lives here rather than in `core/utils/constants.dart` because that file is
-  /// protected (CLAUDE.md §0), and because nothing outside this class has any
-  /// business naming it.
+  /// The secure-storage entry holding the vault's 256-bit key. Not in
+  /// `core/utils/constants.dart` because that file is protected (CLAUDE.md §0).
   static const String _kVaultKey = 'vault_encryption_key';
 
-  /// [_vaultKey] is the cached vault key, so that reading a vault item does not
-  /// cost a keychain round trip per item.
+  /// Cached: the vault list decrypts every row, and a keychain round trip and an
+  /// AES cipher rebuild per item are both avoidable.
   Key? _cachedVaultKey;
 
-  /// [vaultKey] returns the vault's item-encryption key, generating it on first
-  /// use.
+  Encrypter? _cachedVaultEncrypter;
+
+  /// Returns the vault's item-encryption key, generating it on first use.
   ///
-  /// It is **not** the database key. The database is already encrypted at rest with
-  /// that one, so reusing it here would add a second layer that any code holding an
-  /// open database handle could peel straight back off — which is exactly the
-  /// attacker this layer exists to stop. Two keys, two jobs: the database key makes
-  /// the file unreadable off the device, and this one keeps a vault item unreadable
-  /// even to code that is already inside the database.
+  /// Deliberately not the database key: reusing it would add a layer that any
+  /// code holding an open database handle could peel straight off, which is the
+  /// attacker this layer exists to stop.
   Future<Key> vaultKey() async {
     final cached = _cachedVaultKey;
     if (cached != null) return cached;
@@ -108,21 +97,21 @@ class SecurityService {
     return _cachedVaultKey = key;
   }
 
-  /// [encryptSecret] is the vault's item-level AES-256 (Requirement 9.1).
+  /// The GCM cipher over [vaultKey], built once.
+  Future<Encrypter> _vaultEncrypter() async =>
+      _cachedVaultEncrypter ??= Encrypter(AES(await vaultKey(), mode: AESMode.gcm));
+
+  /// The vault's item-level AES-256 (Requirement 9.1).
   ///
-  /// **GCM, not CBC.** GCM authenticates as well as encrypts, so a payload that has
-  /// been altered — by a corrupt write, a bad restore, or someone editing the
-  /// database file — fails to decrypt rather than decrypting into plausible
-  /// nonsense that the app would then show the user as their bank details.
-  ///
-  /// The IV is random per write and stored alongside the ciphertext, which is what
-  /// it is for: a fixed IV would mean two items with the same contents produced
-  /// identical ciphertext, and the encrypted column would leak which of the user's
-  /// passwords are the same password.
+  /// GCM, not CBC: GCM authenticates as well as encrypts, so an altered payload
+  /// fails to decrypt rather than decrypting into plausible nonsense the app
+  /// would show the user as their bank details. The IV is random per write and
+  /// stored alongside the ciphertext — a fixed IV would give identical items
+  /// identical ciphertext, leaking which of the user's passwords are the same.
   Future<JsonResponse> encryptSecret(String plaintext) async {
     try {
       final iv = IV(_randomBytes(_ivLengthBytes));
-      final encrypter = Encrypter(AES(await vaultKey(), mode: AESMode.gcm));
+      final encrypter = await _vaultEncrypter();
 
       final encrypted = encrypter.encrypt(plaintext, iv: iv);
 
@@ -138,12 +127,9 @@ class SecurityService {
     }
   }
 
-  /// [decryptSecret] reverses [encryptSecret].
-  ///
-  /// A failure here is reported rather than swallowed: an item that will not
-  /// decrypt is either damaged or was written under a key this install no longer
-  /// has, and silently rendering it as empty would look exactly like an item the
-  /// user had left blank.
+  /// Reverses [encryptSecret]. A failure is reported, not swallowed: an item that
+  /// will not decrypt is damaged or was written under a key this install no
+  /// longer has, and rendering it empty would look like an item left blank.
   Future<JsonResponse> decryptSecret(String payload) async {
     try {
       final separator = payload.indexOf(':');
@@ -155,7 +141,7 @@ class SecurityService {
       }
 
       final iv = IV.fromBase64(payload.substring(0, separator));
-      final encrypter = Encrypter(AES(await vaultKey(), mode: AESMode.gcm));
+      final encrypter = await _vaultEncrypter();
 
       final plaintext = encrypter.decrypt64(
         payload.substring(separator + 1),
@@ -164,8 +150,8 @@ class SecurityService {
 
       return JsonResponse.success(message: 'Decrypted.', data: plaintext);
     } on Exception {
-      // Reached when GCM's authentication tag does not verify, which is the whole
-      // reason for using GCM: the payload has been tampered with or corrupted.
+      // Reached when GCM's authentication tag does not verify: the payload has
+      // been tampered with or corrupted.
       return JsonResponse.failure(
         statusCode: 422,
         message: 'This item is damaged and cannot be read.',
@@ -175,23 +161,21 @@ class SecurityService {
 
   // ── Backup keys (Requirement 22) ───────────────────────────────────────────
 
-  /// [_kBackupKey] is the secure-storage entry holding the 256-bit master key the
-  /// encrypted backups are derived from.
+  /// The secure-storage entry holding the 256-bit master key `EVB1` backups are
+  /// derived from.
   static const String _kBackupKey = 'backup_master_key';
 
-  /// [backupKeys] returns the pair a backup is sealed with, generating the master
-  /// on first use.
+  /// Returns the pair an `EVB1` backup was sealed with. **Legacy, read-only** —
+  /// new backups use [backupKeysFor]. This device-bound master is why the old
+  /// format was unrestorable: secure storage does not survive an uninstall or
+  /// "clear data" and does not travel to a new phone, so an intact backup failed
+  /// its MAC and reported tampering. Kept only so an install still holding its
+  /// master can read the backups it already has.
   ///
-  /// Two independent keys, both derived from one stored master by SHA-256 with a
-  /// distinct label: the AES key that encrypts the payload, and the HMAC key that
-  /// authenticates it. **Encrypt-then-MAC with separate keys** (Requirement 22.6):
-  /// reusing one key for both is the classic footgun, and deriving them apart
-  /// means the integrity tag cannot be forged by anyone who only learns the cipher
-  /// key.
-  ///
-  /// It is **not** the database key. A backup outlives the install that wrote it —
-  /// the whole point is to survive a reinstall — so it is keyed by a secret of its
-  /// own rather than one bound to a single device's SQLCipher file.
+  /// Encrypt-then-MAC with separate keys (Requirement 22.6): the AES and HMAC
+  /// keys are derived apart from one master by labelled SHA-256, so the integrity
+  /// tag cannot be forged by anyone who only learns the cipher key. Not the
+  /// database key — a backup must outlive the install that wrote it.
   ///
   /// [JsonResponse.data] is `({Key encKey, List<int> macKey})`.
   Future<JsonResponse> backupKeys() async {
@@ -218,15 +202,120 @@ class SecurityService {
     }
   }
 
-  /// [_deriveKey] is a labelled SHA-256 over the master, giving two 256-bit keys
-  /// that share no bits an attacker could pivot between.
+  /// Labelled SHA-256 over the master, giving two 256-bit keys that share no bits
+  /// an attacker could pivot between.
   static Uint8List _deriveKey(Uint8List master, String label) => Uint8List.fromList(
         sha256.convert([...master, ...utf8.encode(label)]).bytes,
       );
 
+  // ── Backup PIN (portable backups) ──────────────────────────────────────────
+
+  /// Work factor for the backup PIN. Higher than the app-lock factor because a
+  /// stolen backup file can be attacked offline as fast as the hardware allows,
+  /// with no lockout in the way. A short numeric PIN has little entropy, so this
+  /// is the only thing between the file and an exhaustive search.
+  static const int kBackupPBKDF2Iterations = 210000;
+
+  /// Holds the backup PIN itself, not a hash: the PIN *is* the key material for
+  /// every backup file, so an unattended automatic backup must re-derive it, and
+  /// a hash cannot encrypt. It sits in the same keychain/keystore as the database
+  /// key and never leaves the device; losing it costs nothing, because the user
+  /// knows the PIN and each file carries its own salt.
+  static const String _kBackupPIN = 'backup_pin';
+
+  /// True once the user has chosen one.
+  Future<bool> hasBackupPIN() async {
+    try {
+      final stored = await storage.read(key: _kBackupPIN);
+      return stored != null && stored.isNotEmpty;
+    } on Exception {
+      return false;
+    }
+  }
+
+  /// Remembers the PIN new backups are sealed with. Changing it does not
+  /// invalidate older backups: each file stores the salt and work factor it was
+  /// written with — which is why those parameters live in the file, not here.
+  Future<JsonResponse> setBackupPIN(String pin) async {
+    try {
+      if (pin.trim().length < 4) {
+        return JsonResponse.failure(
+          statusCode: 400,
+          message: 'Your backup PIN must be at least 4 digits.',
+        );
+      }
+
+      await storage.write(key: _kBackupPIN, value: pin.trim());
+      return JsonResponse.created(message: 'Backup PIN set.');
+    } on Exception {
+      return JsonResponse.failure(
+        statusCode: 500,
+        message: 'Error: could not save your backup PIN.',
+      );
+    }
+  }
+
+  /// Returns the remembered PIN, so an automatic backup can seal without
+  /// prompting. [JsonResponse.data] is the PIN.
+  Future<JsonResponse> backupPIN() async {
+    try {
+      final stored = await storage.read(key: _kBackupPIN);
+      if (stored == null || stored.isEmpty) {
+        return JsonResponse.failure(
+          statusCode: 404,
+          message: 'Set a backup PIN before backing up.',
+        );
+      }
+      return JsonResponse.success(message: 'Backup PIN loaded.', data: stored);
+    } on Exception {
+      return JsonResponse.failure(
+        statusCode: 500,
+        message: 'Error: could not access the secure keystore.',
+      );
+    }
+  }
+
+  /// Stretches [pin] into the encrypt and MAC key pair, using the [salt] and
+  /// [iterations] carried by the file being sealed or opened.
+  ///
+  /// One PBKDF2 pass produces 64 bytes split into two 256-bit halves rather than
+  /// running twice: the halves are independent output of the same KDF, so the MAC
+  /// key still cannot be recovered from the cipher key, at half the cost. The
+  /// derivation depends on nothing but the PIN and the file's own header — no
+  /// device secret, no install state — which is what makes a backup restorable on
+  /// a phone that has never seen the one that wrote it.
+  ///
+  /// [JsonResponse.data] is `({Key encKey, List<int> macKey})`.
+  static Future<JsonResponse> backupKeysFor({
+    required String pin,
+    required Uint8List salt,
+    required int iterations,
+  }) async {
+    try {
+      final derived = await _pbkdf2Async(pin, salt, iterations, _keyLengthBytes * 2);
+      return JsonResponse.success(
+        message: 'Backup keys ready.',
+        data: (
+          encKey: Key(Uint8List.sublistView(derived, 0, _keyLengthBytes)),
+          macKey: Uint8List.sublistView(derived, _keyLengthBytes),
+        ),
+      );
+    } on Exception {
+      return JsonResponse.failure(
+        statusCode: 500,
+        message: 'Error: could not derive the backup keys.',
+      );
+    }
+  }
+
+  /// A fresh per-file PBKDF2 salt. Per file, not per install: two backups sealed
+  /// with the same PIN must not derive the same key, or one cracked file would
+  /// open every other.
+  Uint8List backupSalt() => _randomBytes(_saltLengthBytes);
+
   // ── PIN ────────────────────────────────────────────────────────────────────
 
-  /// [hasPIN] is true once the user has set one.
+  /// True once the user has set one.
   Future<bool> hasPIN() async {
     try {
       final stored = await storage.read(key: kPINHash);
@@ -236,10 +325,9 @@ class SecurityService {
     }
   }
 
-  /// [setPIN] stores [pin] as `iterations:salt:hash`, all hex.
-  ///
-  /// PBKDF2 with a per-user random salt, so the small keyspace of a numeric PIN
-  /// cannot be attacked with a precomputed table, and each guess costs real work.
+  /// Stores [pin] as `iterations:salt:hash`, all hex. PBKDF2 with a per-user
+  /// random salt, so the small keyspace of a numeric PIN cannot be attacked with
+  /// a precomputed table, and each guess costs real work.
   Future<JsonResponse> setPIN(String pin) async {
     try {
       if (pin.trim().length < 4) {
@@ -250,7 +338,7 @@ class SecurityService {
       }
 
       final salt = _randomBytes(_saltLengthBytes);
-      final hash = _pbkdf2(pin, salt, iterations, _keyLengthBytes);
+      final hash = await _pbkdf2Async(pin, salt, iterations, _keyLengthBytes);
       await storage.write(
         key: kPINHash,
         value: '$iterations:${_hex(salt)}:${_hex(hash)}',
@@ -266,11 +354,10 @@ class SecurityService {
     }
   }
 
-  /// [removePIN] deletes the PIN, but only after [pin] verifies against it, so an
-  /// unattended unlocked phone is not one tap away from losing its lock.
-  ///
-  /// The database key is untouched: it is not derived from the PIN, so the data
-  /// remains encrypted at rest with no lock screen (Requirement 23.1).
+  /// Deletes the PIN, but only after [pin] verifies, so an unattended unlocked
+  /// phone is not one tap away from losing its lock. The database key is
+  /// untouched — not being PIN-derived, the data stays encrypted at rest with no
+  /// lock screen (Requirement 23.1).
   Future<JsonResponse> removePIN(String pin) async {
     try {
       final verification = await verifyPIN(pin);
@@ -288,11 +375,9 @@ class SecurityService {
     }
   }
 
-  /// [verifyPIN] checks [pin] and maintains the lockout counter.
-  ///
-  /// The returned [JsonResponse.data] is the [LockoutStatus] afterwards, so the
-  /// caller can render "2 attempts remaining" or a countdown without a second
-  /// round-trip.
+  /// Checks [pin] and maintains the lockout counter. [JsonResponse.data] is the
+  /// resulting [LockoutStatus], so the caller can render "2 attempts remaining"
+  /// or a countdown without a second round-trip.
   Future<JsonResponse> verifyPIN(String pin) async {
     try {
       final lockout = await lockoutStatus();
@@ -325,7 +410,8 @@ class SecurityService {
       final storedIterations = int.tryParse(parts[0]) ?? iterations;
       final salt = _unhex(parts[1]);
       final expected = _unhex(parts[2]);
-      final actual = _pbkdf2(pin, salt, storedIterations, expected.length);
+      final actual =
+          await _pbkdf2Async(pin, salt, storedIterations, expected.length);
 
       if (!_constantTimeEquals(expected, actual)) {
         final status = await _recordFailure();
@@ -354,12 +440,9 @@ class SecurityService {
 
   // ── Lockout (Requirement 1.4) ──────────────────────────────────────────────
 
-  /// [lockoutStatus] reports the current failure count and lockout expiry.
-  ///
-  /// Both live in **secure storage, not in memory**, and that is the point: an
-  /// in-memory counter would be reset by force-quitting the app, so an attacker
-  /// would get unlimited PIN guesses three at a time. Persisting it means the
-  /// lockout survives a restart.
+  /// Reports the current failure count and lockout expiry. Both live in secure
+  /// storage, not memory: an in-memory counter would reset on force-quit, giving
+  /// an attacker unlimited PIN guesses three at a time.
   Future<LockoutStatus> lockoutStatus() async {
     try {
       final attempts =
@@ -401,7 +484,7 @@ class SecurityService {
 
   // ── Biometrics (Requirement 1.2) ───────────────────────────────────────────
 
-  /// [isBiometricAvailable] is true when the device has enrolled biometrics.
+  /// True when the device has enrolled biometrics.
   Future<bool> isBiometricAvailable() async {
     try {
       return await localAuth.canCheckBiometrics &&
@@ -411,11 +494,9 @@ class SecurityService {
     }
   }
 
-  /// [authenticateBiometric] prompts for fingerprint / face.
-  ///
-  /// A failure here is not an error state — it is the normal path to the PIN
-  /// fallback (Requirement 1.3), so the caller shows the PIN pad rather than an
-  /// error.
+  /// Prompts for fingerprint / face. A failure is not an error state — it is the
+  /// normal path to the PIN fallback (Requirement 1.3), so the caller shows the
+  /// PIN pad rather than an error.
   Future<JsonResponse> authenticateBiometric({required String reason}) async {
     try {
       final didAuthenticate = await localAuth.authenticate(
@@ -461,11 +542,33 @@ class SecurityService {
           int.parse(hex.substring(i, i + 2), radix: 16),
       ]);
 
-  /// [_pbkdf2] is PBKDF2-HMAC-SHA256 (RFC 8018).
-  ///
-  /// Hand-rolled because `package:crypto` ships HMAC but not PBKDF2, and pulling
-  /// in a second crypto dependency for ~15 lines of standard block iteration is
-  /// not worth it.
+  /// Runs [_pbkdf2] on a background isolate. At 120k–210k HMAC rounds the
+  /// derivation is measured in seconds, and both callers sit on interactive
+  /// paths (the lock screen, the backup sheet).
+  static Future<Uint8List> _pbkdf2Async(
+    String password,
+    Uint8List salt,
+    int iterations,
+    int outputLength,
+  ) =>
+      compute(
+        _pbkdf2Entry,
+        (
+          password: password,
+          salt: salt,
+          iterations: iterations,
+          outputLength: outputLength,
+        ),
+      );
+
+  /// `compute` entry point: it takes exactly one argument.
+  static Uint8List _pbkdf2Entry(
+    ({String password, Uint8List salt, int iterations, int outputLength}) args,
+  ) =>
+      _pbkdf2(args.password, args.salt, args.iterations, args.outputLength);
+
+  /// PBKDF2-HMAC-SHA256 (RFC 8018). Hand-rolled because `package:crypto` ships
+  /// HMAC but not PBKDF2.
   static Uint8List _pbkdf2(
     String password,
     Uint8List salt,
@@ -500,11 +603,8 @@ class SecurityService {
     return Uint8List.fromList(output.takeBytes().sublist(0, outputLength));
   }
 
-  /// [_constantTimeEquals] compares without short-circuiting.
-  ///
-  /// A plain `==` returns as soon as two bytes differ, which leaks how much of a
-  /// guess was correct through timing. Irrelevant for a local PIN in most threat
-  /// models, but it costs nothing to do properly.
+  /// Compares without short-circuiting: a plain `==` returns as soon as two bytes
+  /// differ, leaking through timing how much of a guess was correct.
   static bool _constantTimeEquals(List<int> a, List<int> b) {
     if (a.length != b.length) return false;
     var difference = 0;
@@ -515,9 +615,8 @@ class SecurityService {
   }
 }
 
-/// [LockoutStatus] is the PIN lockout state (Requirement 1.4).
-///
-/// [lockedUntil] is UTC, and null when not locked out.
+/// The PIN lockout state (Requirement 1.4). [lockedUntil] is UTC, null when not
+/// locked out.
 class LockoutStatus {
   const LockoutStatus({required this.failedAttempts, required this.lockedUntil});
 
@@ -527,13 +626,13 @@ class LockoutStatus {
   bool get isLockedOut =>
       lockedUntil != null && lockedUntil!.isAfter(DateTime.now().toUtc());
 
-  /// [remaining] is how long the lockout still has to run.
+  /// How long the lockout still has to run.
   Duration get remaining {
     if (!isLockedOut) return Duration.zero;
     return lockedUntil!.difference(DateTime.now().toUtc());
   }
 
-  /// [attemptsRemaining] is how many guesses are left before a lockout.
+  /// How many guesses are left before a lockout.
   int get attemptsRemaining =>
       (kMaxPINAttempts - failedAttempts).clamp(0, kMaxPINAttempts);
 }

@@ -57,10 +57,9 @@ class ToBuyService {
 
   /// [setPurchased] ticks an item off (Requirement 7.2).
   ///
-  /// It does not cancel the item's reminder, and that is the point: the reminder is
-  /// *reconciled* from the list by [ToBuyPlan], which does not plan for a purchased
-  /// item, so the alarm is withdrawn on the next sync without any code here knowing
-  /// that alarms exist.
+  /// It deliberately does not cancel the item's reminder: [ToBuyPlan] reconciles
+  /// reminders from the list and does not plan for a purchased item, so the alarm
+  /// is withdrawn on the next sync without this code knowing alarms exist.
   Future<JsonResponse> setPurchased({
     required ToBuyItem item,
     required bool isPurchased,
@@ -100,8 +99,8 @@ class ToBuyService {
     }
   }
 
-  /// [_validate] holds the rules every entry point is subject to — the sheet
-  /// today, the AI parser and the share intent later.
+  /// [_validate] holds the rules every entry point is subject to — the sheet, the
+  /// AI parser, the share intent.
   JsonResponse? _validate(ToBuyItem item) {
     if (item.name.isBlank) {
       return JsonResponse.failure(

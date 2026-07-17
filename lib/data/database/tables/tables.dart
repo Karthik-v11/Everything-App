@@ -1,9 +1,7 @@
 import 'package:drift/drift.dart';
 
-// The full schema, at schemaVersion 1.
-//
-// Every table is declared up front, though most are unused until Phases 3–8, so
-// that each module phase adds a DAO and no migration.
+// The full schema, at schemaVersion 1. Every table is declared up front, even
+// those not yet used, so that a new module adds a DAO and no migration.
 //
 // Conventions:
 // - Primary keys are UUID v4 strings generated in Dart, never autoincrement

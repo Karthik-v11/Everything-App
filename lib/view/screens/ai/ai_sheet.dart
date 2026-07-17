@@ -1,4 +1,5 @@
 import 'package:everything_app/bloc/ai/ai_bloc.dart';
+import 'package:everything_app/bloc/speech/speech_bloc.dart';
 import 'package:everything_app/core/route/routes.dart';
 import 'package:everything_app/core/utils/extensions.dart';
 import 'package:everything_app/core/utils/helpers.dart';
@@ -7,17 +8,18 @@ import 'package:everything_app/data/entity/parsed_ai_inputs.dart';
 import 'package:everything_app/data/entity/parsed_task_intent.dart';
 import 'package:everything_app/data/entity/parsed_transaction_intent.dart';
 import 'package:everything_app/data/models/search_result.dart';
+import 'package:everything_app/view/screens/tasks/task_sheet.dart';
 import 'package:everything_app/view/widgets/app_choice_chip.dart';
+import 'package:everything_app/view/widgets/siri_waveform.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-/// [showAiSheet] opens the AI assistant from the floating dock (Requirement 16).
+/// Opens the AI assistant from the floating dock (Requirement 16).
 ///
-/// It is a modal sheet, not a route — like the task and transaction sheets — so it
-/// opens over whatever screen the dock was tapped from with the keyboard already
-/// up. The root navigator is used so it covers the bottom navigation and the dock
-/// itself.
+/// A modal sheet, not a route, so it opens over whatever screen the dock was
+/// tapped from with the keyboard already up. Uses the root navigator so it covers
+/// the bottom navigation and the dock itself.
 Future<void> showAiSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
@@ -28,13 +30,11 @@ Future<void> showAiSheet(BuildContext context) {
   );
 }
 
-/// [AiSheet] is one line in, one action out.
+/// One line of natural language in, one action out.
 ///
-/// The user types in natural language; the assistant guesses whether it is a task,
-/// an expense, a note, a search or a question and preselects that mode, which the
-/// user can override with the chips. Task and Expense show a live preview of what
-/// will be created so a wrong parse is caught before it is saved; Search and Ask
-/// keep their results on screen.
+/// The assistant classifies the input as task, expense, note, search or question
+/// and preselects that mode; the chips override it. Task and Expense show a live
+/// preview so a wrong parse is caught before it is saved.
 class AiSheet extends StatefulWidget {
   const AiSheet({super.key});
 
@@ -46,16 +46,28 @@ class _AiSheetState extends State<AiSheet> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
 
+  /// [_speech] is held rather than read in [dispose], where the element is
+  /// already defunct and `context.read` throws.
+  late final SpeechBloc _speech;
+
   @override
   void initState() {
     super.initState();
     // The bloc is app-scoped: reset it so the sheet opens on a clean session
     // rather than the last one's results.
     context.read<AiBloc>().add(const AiOpened());
+
+    _speech = context.read<SpeechBloc>()
+      // Also app-scoped, and it holds a transcript. Without this the next open
+      // would replay the last session's words into the field.
+      ..add(const CancelDictationEvent());
   }
 
   @override
   void dispose() {
+    // A session left open by a swipe-down keeps the OS recording indicator lit
+    // over an app that is not listening.
+    _speech.add(const CancelDictationEvent());
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -68,6 +80,37 @@ class _AiSheetState extends State<AiSheet> {
     context.read<AiBloc>().add(AiInputChanged(input: value));
   }
 
+  /// Writes what was heard into the field and runs it through the same path
+  /// typing takes.
+  ///
+  /// Speech lands in the [TextEditingController] rather than going straight to
+  /// [AiBloc] so a misheard word can be corrected before it becomes a task or an
+  /// amount.
+  void _onDictation(String transcript) {
+    if (transcript == _controller.text) return;
+
+    _controller
+      ..text = transcript
+      // Dictation appends, so the caret belongs at the end — otherwise it sits
+      // at offset 0 and the next typed character lands in front of the sentence.
+      ..selection = TextSelection.collapsed(offset: transcript.length);
+
+    _onChanged(transcript);
+  }
+
+  void _toggleMic() {
+    final speech = context.read<SpeechBloc>();
+    if (speech.state.isListening) {
+      speech.add(const StopDictationEvent());
+      return;
+    }
+
+    // The keyboard and the mic ask for the same sentence, so drop the keyboard
+    // rather than leave it up over the waveform.
+    _focus.unfocus();
+    speech.add(const StartDictationEvent());
+  }
+
   void _onModeSelected(AiIntent mode) {
     context.read<AiBloc>().add(AiModeSelected(mode: mode));
     _focus.requestFocus();
@@ -76,9 +119,9 @@ class _AiSheetState extends State<AiSheet> {
   void _submit() =>
       context.read<AiBloc>().add(AiSubmitted(input: _controller.text));
 
-  /// [_openResult] hands off to the module that owns a search hit, closing the
-  /// sheet first — the same destinations Global Search uses. The vault challenges
-  /// before it shows a row, so a title here has given nothing away.
+  /// Hands off to the module that owns a search hit, closing the sheet first —
+  /// the same destinations Global Search uses. The vault challenges before it
+  /// shows a row, so a title here gives nothing away.
   void _openResult(SearchResult result) {
     // Capture the router before popping: closing the sheet unmounts this element,
     // and reading navigation off a defunct context would throw.
@@ -107,6 +150,28 @@ class _AiSheetState extends State<AiSheet> {
 
   @override
   Widget build(BuildContext context) {
+    return MultiBlocListener(
+      listeners: [
+        // Every partial result, not just the final one, so the field fills in as
+        // the user speaks rather than all at once when they stop.
+        BlocListener<SpeechBloc, SpeechState>(
+          listenWhen: (previous, current) =>
+              previous.transcript != current.transcript &&
+              current.transcript.isNotEmpty,
+          listener: (context, state) => _onDictation(state.transcript),
+        ),
+        BlocListener<SpeechBloc, SpeechState>(
+          listenWhen: (previous, current) =>
+              previous.error != current.error && current.error.isNotEmpty,
+          listener: (context, state) =>
+              context.showSnack(state.error, isError: true),
+        ),
+      ],
+      child: _buildSheet(context),
+    );
+  }
+
+  Widget _buildSheet(BuildContext context) {
     return BlocConsumer<AiBloc, AiState>(
       listenWhen: (previous, current) =>
           previous.createdMessage != current.createdMessage ||
@@ -126,7 +191,7 @@ class _AiSheetState extends State<AiSheet> {
           ),
           child: SingleChildScrollView(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -148,7 +213,7 @@ class _AiSheetState extends State<AiSheet> {
                             focusedBorder: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             isDense: true,
-                            contentPadding: EdgeInsets.zero,
+                            contentPadding: EdgeInsets.symmetric(vertical: 8),
                             hintText: 'Add a task, log a spend, or ask…',
                           ),
                           onChanged: _onChanged,
@@ -156,19 +221,19 @@ class _AiSheetState extends State<AiSheet> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      _MicButton(onPressed: _toggleMic),
+                      const SizedBox(width: 8),
                       _SendButton(
-                        isEnabled: _controller.text.trim().isNotEmpty &&
-                            !state.isBusy,
+                        isEnabled:
+                            _controller.text.trim().isNotEmpty && !state.isBusy,
                         isBusy: state.isBusy,
                         onPressed: _submit,
                       ),
                     ],
                   ),
+                  const _DictationBar(),
                   const SizedBox(height: 12),
-                  _ModeChips(
-                    selected: state.mode,
-                    onSelected: _onModeSelected,
-                  ),
+                  _ModeChips(selected: state.mode, onSelected: _onModeSelected),
                   _Outcome(state: state, onOpenResult: _openResult),
                 ],
               ),
@@ -180,7 +245,10 @@ class _AiSheetState extends State<AiSheet> {
   }
 }
 
-/// [_ModeChips] is the row that shows and changes the active mode.
+/// [_ModeChips] shows and changes the active mode.
+///
+/// Wraps rather than scrolling sideways: the mode is the one thing here the user
+/// overrides, and the later modes sat off the right edge unfound.
 class _ModeChips extends StatelessWidget {
   const _ModeChips({required this.selected, required this.onSelected});
 
@@ -189,22 +257,19 @@ class _ModeChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          for (final mode in AiIntent.values) ...[
-            AppChoiceChip(
-              label: mode.label,
-              avatarIcon: mode.icon,
-              isSelected: mode == selected,
-              onSelected: (_) => onSelected(mode),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
+    return Wrap(
+      spacing: 8,
+      // No runSpacing: a ChoiceChip's padded tap target already puts ~8px above
+      // and below its outline, so any here lands on top of that.
+      children: [
+        for (final mode in AiIntent.values)
+          AppChoiceChip(
+            label: mode.label,
+            avatarIcon: mode.icon,
+            isSelected: mode == selected,
+            onSelected: (_) => onSelected(mode),
+          ),
+      ],
     );
   }
 }
@@ -256,7 +321,9 @@ class _Outcome extends StatelessWidget {
         }
       case AiIntent.search:
         if (state.hasResults) {
-          children.add(_ResultsList(results: state.results, onTap: onOpenResult));
+          children.add(
+            _ResultsList(results: state.results, onTap: onOpenResult),
+          );
         }
       case AiIntent.question:
         if (state.hasAnswer) children.add(_Answer(text: state.answer));
@@ -322,12 +389,14 @@ class _TaskPreview extends StatelessWidget {
     final parts = <String>[
       preview.title.trim(),
       if (preview.dueDate case final due?) due.relativeLabel,
+      if (preview.recurrence case final repeat?) repeat.label,
+      // A reminder without a due date is dropped on save, so it is not promised
+      // here either.
+      if (preview.reminderOffset case final offset?)
+        if (preview.dueDate != null) reminderOffsetLabel(offset),
     ];
 
-    return _PreviewCard(
-      icon: AiIntent.task.icon,
-      text: parts.join('  ·  '),
-    );
+    return _PreviewCard(icon: AiIntent.task.icon, text: parts.join('  ·  '));
   }
 }
 
@@ -340,7 +409,8 @@ class _TransactionPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!preview.hasAmount) return const SizedBox.shrink();
 
-    final text = '${preview.type.label}  ·  '
+    final text =
+        '${preview.type.label}  ·  '
         '${Helpers.formatMoney(preview.amountMinor, compact: true)}  ·  '
         '${preview.category}';
 
@@ -357,10 +427,7 @@ class _BookmarkPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     if (preview.url.isEmpty) return const SizedBox.shrink();
 
-    return _PreviewCard(
-      icon: AiIntent.bookmark.icon,
-      text: preview.url,
-    );
+    return _PreviewCard(icon: AiIntent.bookmark.icon, text: preview.url);
   }
 }
 
@@ -380,10 +447,7 @@ class _ToBuyPreview extends StatelessWidget {
         Helpers.formatMoney(preview.estimatedPriceMinor!, compact: true),
     ];
 
-    return _PreviewCard(
-      icon: AiIntent.toBuy.icon,
-      text: parts.join('  ·  '),
-    );
+    return _PreviewCard(icon: AiIntent.toBuy.icon, text: parts.join('  ·  '));
   }
 }
 
@@ -428,10 +492,7 @@ class _ProjectPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     if (preview.name.isEmpty) return const SizedBox.shrink();
 
-    return _PreviewCard(
-      icon: AiIntent.project.icon,
-      text: preview.name,
-    );
+    return _PreviewCard(icon: AiIntent.project.icon, text: preview.name);
   }
 }
 
@@ -517,6 +578,86 @@ class _Answer extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(text, style: context.texts.bodyMedium),
+    );
+  }
+}
+
+/// Starts and stops dictation (Requirement 16). A toggle rather than
+/// hold-to-talk, so the user need not keep a thumb on the screen while talking.
+class _MicButton extends StatelessWidget {
+  const _MicButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return BlocBuilder<SpeechBloc, SpeechState>(
+      buildWhen: (previous, current) =>
+          previous.isListening != current.isListening ||
+          previous.isUnavailable != current.isUnavailable,
+      builder: (context, state) {
+        final isListening = state.isListening;
+
+        return SizedBox.square(
+          dimension: 44,
+          child: IconButton(
+            // Disabled only once the recogniser has actually refused: greying it
+            // out before permission is asked hides the only control that can ask.
+            onPressed: state.isUnavailable ? null : onPressed,
+            tooltip: isListening ? 'Stop dictation' : 'Dictate',
+            style: IconButton.styleFrom(
+              backgroundColor: isListening
+                  ? colors.error
+                  : colors.surfaceContainerHighest,
+              foregroundColor: isListening
+                  ? colors.onError
+                  : colors.onSurfaceVariant,
+            ),
+            icon: Icon(
+              isListening ? Icons.stop_rounded : Icons.mic_rounded,
+              size: 20,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The waveform and the space reserved for it. [AnimatedSize] over a conditional
+/// child so the chips and preview below do not jump when the mic opens
+/// (CLAUDE.md §12: reserve layout space for elements that come and go).
+class _DictationBar extends StatelessWidget {
+  const _DictationBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SpeechBloc, SpeechState>(
+      buildWhen: (previous, current) =>
+          previous.isListening != current.isListening ||
+          previous.level != current.level,
+      builder: (context, state) {
+        return AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: !state.isListening
+              ? const SizedBox(width: double.infinity)
+              : Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Semantics(
+                    liveRegion: true,
+                    label: 'Listening',
+                    child: SiriWaveform(
+                      level: state.level,
+                      isListening: state.isListening,
+                    ),
+                  ),
+                ),
+        );
+      },
     );
   }
 }

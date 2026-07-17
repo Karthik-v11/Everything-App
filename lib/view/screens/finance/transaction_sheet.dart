@@ -28,13 +28,11 @@ Future<void> showTransactionSheet(
   );
 }
 
-/// [TransactionSheet] creates or edits a transaction.
+/// Creates or edits a transaction.
 ///
-/// The amount is the field that opens with the caret in it: it is the only thing
-/// the user always has in mind when they reach for this sheet, and it is the only
-/// one they cannot get wrong by leaving alone. Everything else has a working
-/// default — today, the last-used account, `Other` — so a spend can be logged
-/// with an amount, a word and one tap.
+/// The amount field opens with the caret in it; everything else has a working
+/// default (today, the last-used account, `Other`) so a spend can be logged with
+/// an amount, a word and one tap.
 class TransactionSheet extends StatefulWidget {
   const TransactionSheet({this.transaction, super.key});
 
@@ -62,10 +60,9 @@ class _TransactionSheetState extends State<TransactionSheet> {
 
   bool _isMoreOpen = false;
 
-  /// True once the category is the user's own choice — either one they picked from
-  /// the menu or one an edited transaction already carried. [_readCategory] never
-  /// overrules it: a guess that quietly replaces a deliberate choice is worse than
-  /// no guess at all.
+  /// True once the category is the user's own choice (picked from the menu, or
+  /// carried by an edited transaction). [_readCategory] never overrules it, so a
+  /// guess cannot replace a deliberate choice.
   bool _isCategoryPinned = false;
 
   Transaction? get _original => widget.transaction;
@@ -97,9 +94,8 @@ class _TransactionSheetState extends State<TransactionSheet> {
       _accountId = _accounts.isEmpty ? '' : _accounts.first.id;
       _isCategoryPinned = false;
 
-      // A transaction logged while the user is looking at a past month belongs to
-      // *that* month, not to today — otherwise it lands somewhere they are not
-      // looking and the total they were watching does not move.
+      // A transaction logged while a past month is on screen belongs to that
+      // month, not today, or it lands where the user is not looking.
       final month = finance.selectedMonth;
       final now = DateTime.now();
       _date = month.month == now.month && month.year == now.year
@@ -389,42 +385,46 @@ class _TypeRow extends StatelessWidget {
           final value = TransactionType.values[index];
           final isSelected = value == type;
 
-          return GestureDetector(
-            onTap: () => onSelected(value),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isSelected ? colors.primary : colors.surfaceContainer,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: isSelected ? colors.primary : colors.outline,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    value.icon,
-                    size: 15,
-                    color: isSelected
-                        ? colors.onPrimary
-                        : colors.onSurfaceVariant,
+          return Semantics(
+            button: true,
+            selected: isSelected,
+            child: GestureDetector(
+              onTap: () => onSelected(value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? colors.primary : colors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isSelected ? colors.primary : colors.outline,
                   ),
-                  const Gap(6),
-                  Text(
-                    value.label,
-                    style: context.texts.labelMedium?.copyWith(
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      value.icon,
+                      size: 15,
                       color: isSelected
                           ? colors.onPrimary
                           : colors.onSurfaceVariant,
-                      fontWeight:
-                          isSelected ? FontWeight.w700 : FontWeight.w500,
                     ),
-                  ),
-                ],
+                    const Gap(6),
+                    Text(
+                      value.label,
+                      style: context.texts.labelMedium?.copyWith(
+                        color: isSelected
+                            ? colors.onPrimary
+                            : colors.onSurfaceVariant,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );

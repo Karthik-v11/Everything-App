@@ -86,10 +86,9 @@ class TasksState extends Equatable {
   /// The notification configuration, as last reported by [SettingsBloc]
   /// (Requirement 5).
   ///
-  /// Null until Settings reports in, and that null is load-bearing: it is what
-  /// keeps the bloc from scheduling anything against the defaults before the
-  /// user's own choices are known. It is not persisted here — [SettingsBloc] owns
-  /// it and hydrates it — and it is not rendered.
+  /// The null is load-bearing: it keeps the bloc from scheduling against the
+  /// defaults before the user's own choices are known. Not persisted here —
+  /// [SettingsBloc] owns and hydrates it — and not rendered.
   final NotificationSettings? notificationSettings;
 
   /// [visibleTasks] is [tasks] under the active filter, the category and priority
@@ -129,7 +128,7 @@ class TasksState extends Equatable {
 
       // Overdue here is per-day, not per-minute as in [Task.isOverdue]: a task
       // due at 09:00 stays under Today for the rest of the day.
-      if (due.dateOnly.isBefore(DateTime.now().dateOnly)) {
+      if (due.dateOnly.isBefore(clock.now().dateOnly)) {
         overdue.add(task);
         continue;
       }
@@ -158,11 +157,10 @@ class TasksState extends Equatable {
   /// [todayTasks] is what the Dashboard lists (Requirement 3.4): today's open
   /// work, sorted by urgency.
   ///
-  /// Overdue tasks are in it. They are not "today's tasks" by their due date, but
-  /// they are today's work by any other reading — and a dashboard that hides the
-  /// thing that was already late is the one screen in the app that must not.
+  /// Overdue tasks are included: they are not today's by due date, but they are
+  /// today's work, and the Dashboard must not hide what is already late.
   List<Task> get todayTasks {
-    final today = DateTime.now().dateOnly;
+    final today = clock.now().dateOnly;
 
     final matched = [
       for (final task in tasks)
@@ -171,6 +169,66 @@ class TasksState extends Equatable {
     ];
 
     return matched..sort(_byUrgency);
+  }
+
+  /// [overdueCount] is the tasks whose due date fell before today.
+  ///
+  /// Per-day, matching [dateGroups] rather than the per-minute [Task.isOverdue]
+  /// that [TaskFilter.overdue] uses: the agenda subline sits directly above rows
+  /// saying "Overdue by 2 days" and must not disagree with them.
+  int get overdueCount {
+    final today = clock.now().dateOnly;
+
+    return tasks
+        .where(
+          (task) =>
+              task.status == TaskStatus.pending &&
+              task.dueDate != null &&
+              task.dueDate!.dateOnly.isBefore(today),
+        )
+        .length;
+  }
+
+  /// [completedTodayCount] is the tasks finished since midnight.
+  ///
+  /// Counted off [Task.completedAt], not [Task.dueDate]: a task cleared today is
+  /// today's work regardless of when it was due. Lets the Dashboard tell an
+  /// earned-empty agenda apart from an unplanned one.
+  int get completedTodayCount {
+    final today = clock.now().dateOnly;
+
+    return tasks
+        .where(
+          (task) =>
+              task.status == TaskStatus.completed &&
+              task.completedAt != null &&
+              task.completedAt!.dateOnly == today,
+        )
+        .length;
+  }
+
+  /// [nextUpcoming] is the earliest pending task still due later today, or null.
+  ///
+  /// Per-minute deliberately, unlike [overdueCount]: a task due at 09:00 is not
+  /// upcoming at noon. Undated and already-passed tasks are excluded — the panel
+  /// counts down, and there would be nothing to count down to.
+  Task? get nextUpcoming {
+    final now = clock.now();
+    final today = now.dateOnly;
+
+    Task? earliest;
+    for (final task in tasks) {
+      if (task.status != TaskStatus.pending) continue;
+
+      final due = task.dueDate;
+      if (due == null) continue;
+      if (due.dateOnly != today) continue;
+      if (!due.isAfter(now)) continue;
+
+      if (earliest == null || due.isBefore(earliest.dueDate!)) earliest = task;
+    }
+
+    return earliest;
   }
 
   /// [datesWithTasks] is the set of days the calendar strip marks with a dot.
@@ -217,7 +275,7 @@ class TasksState extends Equatable {
       // Starts from tomorrow; today's remaining work is the Today filter's job.
       TaskFilter.upcoming => due != null &&
           task.status == TaskStatus.pending &&
-          due.dateOnly.isAfter(DateTime.now().dateOnly),
+          due.dateOnly.isAfter(clock.now().dateOnly),
       TaskFilter.completed => task.status == TaskStatus.completed,
       TaskFilter.overdue => task.isOverdue,
     };

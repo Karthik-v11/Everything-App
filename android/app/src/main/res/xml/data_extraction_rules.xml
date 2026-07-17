@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ device-to-device transfer, which android:allowBackup no longer
+     governs. The excluded paths are the KeyStore-bound ones: restoring them onto a
+     device whose KeyStore lacks the wrapping key yields data that cannot be
+     unwrapped, which flutter_secure_storage then deletes (resetOnError).
+
+     FlutterSecureKeyStorage holds the wrapped key material, FlutterSecureStorage
+     the secrets themselves, and app_flutter the SQLCipher database those secrets
+     key. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:FlutterSecureStorage.xml" />
+        <exclude domain="root" path="app_flutter" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureKeyStorage.xml" />
+        <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:FlutterSecureStorage.xml" />
+        <exclude domain="root" path="app_flutter" />
+    </device-transfer>
+</data-extraction-rules>

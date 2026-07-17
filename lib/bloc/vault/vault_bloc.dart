@@ -13,40 +13,19 @@ part 'vault_state.dart';
 
 /// [VaultBloc] owns the Vault (Requirement 9).
 ///
-/// Style A: it holds the item list, the folders, the filters, and the lock.
-///
-/// **It is deliberately not a [HydratedBloc].** A persisted `isUnlocked` would
-/// restore the vault open on the next launch, which is precisely the thing
-/// Requirement 9.2 exists to prevent. The lock is session state and dies with the
-/// process — the same reasoning as [AuthBloc].
+/// **Deliberately not a [HydratedBloc]**: a persisted `isUnlocked` would restore
+/// the vault open on the next launch, which Requirement 9.2 exists to prevent.
+/// The lock is session state and dies with the process.
 ///
 /// Three rules make this a vault rather than a list with a password on it:
 ///
-/// 1. **The challenge is fresh, and it is not the app's.** Unlocking the app gets
-///    you as far as the Library; it does not get you into the vault. This bloc runs
-///    its own biometric-or-PIN challenge on entry, through the same
-///    [AuthRepository] — so the same lockout policy applies to a vault guess as to
-///    an app guess (Requirement 1.4), and an attacker cannot get unlimited attempts
-///    by coming in through the vault instead of the lock screen.
-///
-/// 2. **It re-locks when the screen is left.** [LockVaultEvent] fires from the
-///    vault screen's `dispose`, so leaving and coming back is a new entry and a new
-///    challenge. A vault that stayed open for the life of the process would be open
-///    to whoever picked the phone up next, which is the case it exists for.
-///
-/// 3. **The list never holds a plaintext.** [items] are ciphertext blobs; exactly
-///    one item is decrypted at a time, into [VaultState.revealed], when its detail
-///    screen opens — and it is cleared when that screen closes ([ClearRevealedEvent]).
-///
-/// Events:
-/// 1) [WatchVaultEvent] — subscribe to items and folders. Fired once.
-/// 2) [VaultFoldersUpdatedEvent] — a folder was added, renamed or removed.
-/// 3) [UnlockVaultEvent] / [UnlockVaultWithPINEvent] — the entry challenge.
-/// 4) [LockVaultEvent] — leaving the vault.
-/// 5) [RevealVaultItemEvent] / [ClearRevealedEvent] — the detail screen.
-/// 6) [SaveVaultItemEvent] / [DeleteVaultItemEvent] — the sheet and the swipe.
-/// 7) [FilterVaultEvent] / [SearchVaultEvent] — narrowing the list.
-/// 8) [SaveVaultFolderEvent] / [DeleteVaultFolderEvent] — folder management.
+/// 1. The entry challenge is its own, not the app's, and runs through the same
+///    [AuthRepository] — so a vault guess advances the same lockout as an app
+///    guess (Requirement 1.4) and the vault is not an unlimited-attempts door.
+/// 2. [LockVaultEvent] fires from the vault screen's `dispose`, so returning is a
+///    new challenge rather than a vault left open for the life of the process.
+/// 3. [items] are ciphertext; exactly one item is decrypted at a time into
+///    [VaultState.revealed], cleared when its detail screen closes.
 class VaultBloc extends Bloc<VaultEvent, VaultState> {
   VaultBloc({
     required this.repository,
@@ -74,11 +53,10 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   /// [_onWatchVaultEvent] subscribes to the vault's rows.
   ///
-  /// It runs whether or not the vault is unlocked, and that is safe *because* of how
-  /// [VaultItem] is shaped: every payload on this stream is ciphertext. Streaming
-  /// the list behind the lock means the vault is ready the instant the challenge is
-  /// passed, rather than the user staring at a spinner having just proved who they
-  /// are — and nothing readable has been loaded in the meantime.
+  /// It runs whether or not the vault is unlocked, which is safe because every
+  /// payload on this stream is ciphertext. Streaming behind the lock means the
+  /// vault is ready the instant the challenge is passed, with nothing readable
+  /// loaded in the meantime.
   FutureOr<void> _onWatchVaultEvent(
     WatchVaultEvent event,
     Emitter<VaultState> emit,
@@ -122,9 +100,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   /// [_onUnlockVaultEvent] runs the biometric challenge.
   ///
-  /// A failed or cancelled prompt is **not** an error: it is the PIN fallback path,
-  /// exactly as on the lock screen (Requirement 1.3). The vault simply stays locked
-  /// and the screen offers the PIN.
+  /// A failed or cancelled prompt is not an error: it is the PIN fallback path,
+  /// as on the lock screen (Requirement 1.3). The vault stays locked.
   FutureOr<void> _onUnlockVaultEvent(
     UnlockVaultEvent event,
     Emitter<VaultState> emit,
@@ -149,10 +126,9 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   /// [_onUnlockVaultWithPINEvent] is the PIN fallback.
   ///
-  /// It goes through the same [AuthRepository.verifyPIN] as the app's lock screen,
-  /// so a wrong guess here advances the *same* lockout counter (Requirement 1.4).
-  /// A separate vault PIN check would have been a second front door with no bolt on
-  /// it: three guesses at the lock screen, three more at the vault.
+  /// Goes through the same [AuthRepository.verifyPIN] as the app's lock screen, so
+  /// a wrong guess advances the *same* lockout counter (Requirement 1.4). A
+  /// separate vault PIN check would double the allowed guesses.
   FutureOr<void> _onUnlockVaultWithPINEvent(
     UnlockVaultWithPINEvent event,
     Emitter<VaultState> emit,
@@ -179,10 +155,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   /// [_onLockVaultEvent] re-locks the vault and **drops the revealed plaintext**.
   ///
-  /// Both halves matter. Leaving the vault must not leave a decrypted secret sitting
-  /// in the state of a bloc that outlives the screen — the bloc is app-scoped, and
-  /// the next thing to open the vault would find the last person's password already
-  /// in memory.
+  /// The bloc is app-scoped, so a decrypted secret left in its state would still be
+  /// in memory for whoever opens the vault next.
   FutureOr<void> _onLockVaultEvent(
     LockVaultEvent event,
     Emitter<VaultState> emit,
@@ -202,9 +176,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
 
   /// [_onRevealVaultItemEvent] decrypts exactly one item, for the detail screen.
   ///
-  /// Refused outright while the vault is locked. Nothing in the app should be able
-  /// to reach this event without having passed the challenge, but a decryption that
-  /// checked would be one fewer way for a future screen to get it wrong.
+  /// Refused while the vault is locked — a backstop against a future screen
+  /// reaching this event without having passed the challenge.
   FutureOr<void> _onRevealVaultItemEvent(
     RevealVaultItemEvent event,
     Emitter<VaultState> emit,
@@ -243,10 +216,8 @@ class VaultBloc extends Bloc<VaultEvent, VaultState> {
     }
   }
 
-  /// [_onClearRevealedEvent] drops the plaintext when the detail screen closes.
-  ///
-  /// This is the other half of "plaintext is never held in list state": it exists in
-  /// exactly one field, for exactly as long as one screen is showing it.
+  /// [_onClearRevealedEvent] drops the plaintext when the detail screen closes, so
+  /// it exists in one field for exactly as long as one screen shows it.
   FutureOr<void> _onClearRevealedEvent(
     ClearRevealedEvent event,
     Emitter<VaultState> emit,

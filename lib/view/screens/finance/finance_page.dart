@@ -21,22 +21,13 @@ const int _kPreviewCount = 5;
 
 /// [FinancePage] is the Finance dashboard (Requirements 12–14).
 ///
-/// One question per block, in the order they are asked: what went out this month
-/// and on what (the ring), how that sits against the budget, what came in and what
-/// was kept, how the month compares to the ones before it, and what the month is
-/// actually made of.
+/// One question per block: what went out and on what (the ring), how that sits
+/// against the budget, what came in and what was kept, how the month compares to
+/// earlier ones, and what the month is made of.
 ///
-/// There is one chart besides the ring. The bar chart that used to sit behind a
-/// toggle beside the trend line answered the same question the trend line and the
-/// totals row already answer, and a screen that says a thing three times is a
-/// screen the user has to read three times to be sure it isn't saying something
-/// new.
-///
-/// Two blocs feed it, and neither could do the job alone: [FinanceBloc] owns the
-/// transactions and therefore every total, and [BudgetBloc] owns the limits and
-/// therefore the strip. Their only contact is [FinanceBloc] pushing the month's
-/// spending across — the screen is where the two are put side by side, which is
-/// the only place they belong together.
+/// [FinanceBloc] owns the transactions and therefore every total; [BudgetBloc]
+/// owns the limits and therefore the strip. Their only contact is [FinanceBloc]
+/// pushing the month's spending across; this screen is where the two meet.
 class FinancePage extends StatelessWidget {
   const FinancePage({super.key});
 
@@ -51,12 +42,11 @@ class FinancePage extends StatelessWidget {
             context.showSnack(state.error, isError: true);
           }
         },
-        // Every block on this screen — the ring, the totals, the trend, the
-        // preview — is derived from the month's transactions, the accounts, the
-        // selected month and the highlighted category. The search query, the
-        // type/account filters and the transient message belong to the
-        // transactions route pushed on top of this one; a keystroke there must
-        // not re-run this page's six derivations and re-animate both charts.
+        // Every block here derives from transactions, accounts, selected month
+        // and highlighted category. The search query and type/account filters
+        // belong to the transactions route pushed on top of this one: a
+        // keystroke there must not re-run these derivations or re-animate the
+        // charts.
         buildWhen: (previous, current) =>
             previous.transactions != current.transactions ||
             previous.accounts != current.accounts ||
@@ -68,9 +58,8 @@ class FinancePage extends StatelessWidget {
 
           return Column(
             children: [
-              // Outside the list, so the header stays put while the month scrolls
-              // under it — and so it is still there during the first load, which
-              // is what the other three tabs do.
+              // Outside the list, so the header stays put while the month
+              // scrolls under it and is present during the first load.
               Padding(
                 padding: responsivePadding(context),
                 child: _Header(
@@ -108,8 +97,8 @@ class _Body extends StatelessWidget {
   }
 
   void _openTransactions(BuildContext context) {
-    // Any filter left over from a chart tap would silently narrow a list the user
-    // asked to see all of.
+    // Clear any filter left over from a chart tap: it would silently narrow a
+    // list the user asked to see all of.
     context.read<FinanceBloc>().add(const FilterTransactionsEvent());
     context.pushNamed(transactionsRoute);
   }
@@ -134,10 +123,9 @@ class _Body extends StatelessWidget {
           onSeeAll: () => _openTransactions(context),
         ),
         const Gap(16),
-
-                _TrendSection(state: state),
-                                const Gap(28),
-                        _NavRow(
+        _TrendSection(state: state),
+        const Gap(28),
+        _NavRow(
           icon: Icons.pie_chart_outline_rounded,
           label: 'Budgets',
           onTap: () => context.pushNamed(budgetsRoute),
@@ -147,8 +135,6 @@ class _Body extends StatelessWidget {
           label: 'Accounts',
           onTap: () => context.pushNamed(accountsRoute),
         ),
-
-
       ],
     );
   }
@@ -178,10 +164,6 @@ class _Header extends StatelessWidget {
 }
 
 /// [_SpendCard] is the ring, what it adds up to, and the legend beside it.
-///
-/// The budget used to live along the bottom of this card. It is its own strip now:
-/// the two say different things — what was spent, and whether that was too much —
-/// and a card that answered both had to shrink each answer to fit.
 class _SpendCard extends StatelessWidget {
   const _SpendCard({required this.state, required this.onSelectCategory});
 
@@ -251,18 +233,15 @@ class _BudgetStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<BudgetBloc, BudgetState>(
-      // The strip's spend comes from [FinanceState]; from [BudgetBloc] it takes
-      // only the month's limit. So it rebuilds when the limits change, not on
-      // the spend-and-alert emissions FinanceBloc drives into BudgetBloc after
-      // every transaction write.
+      // Spend comes from [FinanceState]; only the limit comes from
+      // [BudgetBloc]. Rebuild on limit changes, not on the spend-and-alert
+      // emissions FinanceBloc drives into BudgetBloc after every write.
       buildWhen: (previous, current) => previous.budgets != current.budgets,
       builder: (context, budget) {
-        // The bar renders the budget for the month *the finance screen* is
-        // showing. BudgetBloc tracks whichever month it was last told about, and
-        // on the frame after the month is stepped that is still the old one — so
-        // the budget is looked up by the selected month here rather than taken
-        // from `budget.status`, which would flash the previous month's limit
-        // against this month's spending.
+        // Look the budget up by the selected month rather than using
+        // `budget.status`: BudgetBloc still tracks the old month on the frame
+        // after the month is stepped, which would flash the previous month's
+        // limit against this month's spending.
         final status = BudgetStatus(
           budget: budget.budgetFor(
             month: state.selectedMonth.month,
@@ -286,16 +265,12 @@ class _BudgetStrip extends StatelessWidget {
 
 /// [_Totals] is the month's income, expense and savings (Requirement 13.1).
 ///
-/// The three are one card rather than three bare columns on the page background:
-/// they are a single sentence about the month — this came in, that went out, this
-/// is what is left — and the arithmetic between them is only legible if they are
-/// visibly one thing. The rules between them carry that; the icons carry the
-/// direction, so the numbers do not have to be read to see which way the month
-/// went.
+/// One card, not three columns: the arithmetic between them is only legible if
+/// they read as one thing. Icons carry the direction so the numbers need not be
+/// read to see which way the month went.
 ///
-/// Income is the accent, not a green: the app's [ColorScheme] has no success
-/// colour, and `tertiary` — which this used to ask for — is not defined in
-/// `AppTheme`, so it silently resolved to the grey of `secondary`.
+/// Income uses the accent, not green: the app's [ColorScheme] has no success
+/// colour, and `tertiary` is undefined in `AppTheme` (it resolves to grey).
 class _Totals extends StatelessWidget {
   const _Totals({required this.state});
 
@@ -313,8 +288,8 @@ class _Totals extends StatelessWidget {
         color: colors.surfaceContainer,
         borderRadius: BorderRadius.circular(12),
       ),
-      // The rules are drawn the full height of the tallest cell, which is what
-      // IntrinsicHeight is for — a Row alone would give them no height to take.
+      // IntrinsicHeight so the rules draw the full height of the tallest cell;
+      // a Row alone would give them no height to take.
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -339,8 +314,7 @@ class _Totals extends StatelessWidget {
             _TotalsRule(color: colors.outline),
             Expanded(
               child: _Total(
-                // A month that spent more than it earned is the one case worth
-                // calling out, so it changes the icon as well as the colour.
+                // Overspending changes the icon as well as the colour.
                 icon: isShort
                     ? Icons.trending_down_rounded
                     : Icons.savings_outlined,
@@ -370,8 +344,7 @@ class _TotalsRule extends StatelessWidget {
       );
 }
 
-/// [_Total] is one cell of [_Totals]: which way the money moved, what it is
-/// called, and how much of it there was.
+/// [_Total] is one cell of [_Totals]: direction, label, and amount.
 class _Total extends StatelessWidget {
   const _Total({
     required this.icon,
@@ -389,8 +362,8 @@ class _Total extends StatelessWidget {
   Widget build(BuildContext context) {
     final texts = context.texts;
 
-    // Centred in its cell, so the three read as columns of a table rather than as
-    // three left-aligned blocks drifting away from their rules.
+    // Centred so the three read as table columns rather than left-aligned
+    // blocks drifting away from their rules.
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -411,7 +384,7 @@ class _Total extends StatelessWidget {
         ),
         const Gap(8),
         Padding(
-          // The amount is the widest thing in the cell; this keeps it off the rule
+          // The amount is the widest thing in the cell; keeps it off the rule
           // when it runs long.
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Text(
@@ -430,8 +403,7 @@ class _Total extends StatelessWidget {
   }
 }
 
-/// [_TrendSection] is the spending trend (Requirement 13.2) — the one chart on the
-/// screen besides the ring.
+/// [_TrendSection] is the spending trend (Requirement 13.2).
 class _TrendSection extends StatelessWidget {
   const _TrendSection({required this.state});
 
@@ -463,9 +435,12 @@ class _TransactionsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final transactions = state.monthTransactions;
-    final preview = transactions.take(_kPreviewCount).toList()
+    // Sort before taking, or the preview is an arbitrary five: `monthTransactions`
+    // is in DB order. The getter builds a fresh list per call, so sorting it does
+    // not touch the bloc's state.
+    final transactions = state.monthTransactions
       ..sort((a, b) => b.date.compareTo(a.date));
+    final preview = transactions.take(_kPreviewCount).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

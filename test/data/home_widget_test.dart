@@ -97,10 +97,14 @@ void main() {
       expect(published, isNot(contains('1234-5678')));
       expect(published, isNot(contains('house')));
 
+      // As with the key set above, the exact set and not "contains": priority was
+      // added here deliberately — it is a four-value enum the widget draws as a
+      // marker colour, and it says nothing about the task beyond how it is
+      // already sorted. There is no isCompleted: only open tasks are published.
       final decoded = (jsonDecode(published) as List).first as Map;
       expect(
         decoded.keys.toSet(),
-        {'id', 'title', 'isCompleted', 'isOverdue', 'dueLabel'},
+        {'id', 'title', 'isOverdue', 'priority', 'dueLabel'},
       );
     });
 
@@ -147,7 +151,7 @@ void main() {
       expect(payload.overdueCount, 1);
     });
 
-    test('a completed overdue task drops off; a completed one due today stays',
+    test('a completed task is never a row, whether it was due today or overdue',
         () {
       final payload = HomeWidgetPayload.build(
         tasks: [
@@ -163,17 +167,49 @@ void main() {
             dueDate: today,
             status: TaskStatus.completed,
           ),
+          // 5pm rather than a bare date, which is midnight and so already overdue
+          // at 09:30 — this task is here to be the open one, not the late one.
+          task(
+            id: '3',
+            title: 'Still open',
+            dueDate: today.add(const Duration(hours: 17)),
+          ),
         ],
         expenseMinor: 0,
         now: now,
       );
 
-      // An overdue task that is done is not overdue — it is finished, and dragging
-      // it back onto today's list would make the widget an archive.
-      expect(payload.tasks.map((t) => t.title), ['Done today']);
-      expect(payload.openCount, 0);
-      expect(payload.completedCount, 1);
+      // The widget is a list of what is left. A finished task holding one of four
+      // rows on a home screen is a row not showing the next thing — and an overdue
+      // task that is done is not overdue, it is finished.
+      expect(payload.tasks.map((t) => t.title), ['Still open']);
+      expect(payload.openCount, 1);
       expect(payload.overdueCount, 0);
+
+      // Counted, though: what was finished today is a fact about the day, and a
+      // count costs none of the space a row does. Only the one due today —
+      // there is no completion timestamp to attribute the older one to.
+      expect(payload.completedCount, 1);
+    });
+
+    test('publishes each task\'s priority by name, for the marker colour', () {
+      final payload = HomeWidgetPayload.build(
+        tasks: [
+          task(id: '1', title: 'Critical', dueDate: today)
+              .copyWith(priority: TaskPriority.critical),
+          task(id: '2', title: 'Low', dueDate: today)
+              .copyWith(priority: TaskPriority.low),
+        ],
+        expenseMinor: 0,
+        now: now,
+      );
+
+      // The name, not a colour: the widget palette lives in widget_colors.xml and
+      // Info.plist's Swift twin, and neither can read AppColors.
+      expect(
+        payload.tasks.map((t) => t.priority),
+        ['critical', 'low'],
+      );
     });
 
     test('a task with no due date is not today\'s work', () {

@@ -7,16 +7,10 @@ part 'finance_dao.g.dart';
 
 /// [FinanceDao] is every SQL statement the Finance module issues.
 ///
-/// As in [TasksDao], the `watch*` methods return streams: drift re-runs the query
-/// and pushes a new list whenever a row changes, so a transaction saved in the
-/// form refreshes the dashboard, the charts, the account balances and the budget
-/// bar with no reload event anywhere.
-///
-/// [watchTransactions] deliberately streams **every** transaction rather than one
-/// month's. The dashboard needs a six-month trend, the summary needs the selected
-/// month, and the search spans everything — three overlapping windows over the
-/// same rows, which one query serves and three would keep in sync by hand. The
-/// month is a filter applied in memory, so changing it is free.
+/// [watchTransactions] deliberately streams **every** transaction rather than
+/// one month's: the dashboard's six-month trend, the selected month's summary
+/// and search are three overlapping windows over the same rows, which one query
+/// serves. The month is filtered in memory, so changing it is free.
 @DriftAccessor(tables: [TransactionsTable, AccountsTable, BudgetsTable])
 class FinanceDao extends DatabaseAccessor<AppDatabase> with _$FinanceDaoMixin {
   FinanceDao(super.db);
@@ -77,10 +71,8 @@ class FinanceDao extends DatabaseAccessor<AppDatabase> with _$FinanceDaoMixin {
   Future<int> deleteAccount(String id) =>
       (delete(accountsTable)..where((a) => a.id.equals(id))).go();
 
-  /// [seedAccountsIfEmpty] installs the default accounts on first launch.
-  ///
-  /// Guarded on an empty table, so an account the user deleted is not reinstated
-  /// on the next launch.
+  /// [seedAccountsIfEmpty] installs the default accounts on first launch. Guarded
+  /// on an empty table, so a deleted account is not reinstated on the next launch.
   Future<void> seedAccountsIfEmpty(List<AccountsTableCompanion> defaults) async {
     final existing = await select(accountsTable).get();
     if (existing.isNotEmpty) return;

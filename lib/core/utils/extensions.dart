@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -5,14 +6,23 @@ import 'package:intl/intl.dart';
 ///
 /// DO NOT MODIFY.
 
+/// Built once rather than per call: the getters below run from list-item
+/// builders, so a fresh `DateFormat` would be parsed per visible row per frame.
+/// Safe to cache because the app is single-locale.
+final _monthName = DateFormat.MMMM();
+final _weekdayName = DateFormat.EEEE();
+final _dayNumber = DateFormat('dd');
+final _weekdayShort = DateFormat.E();
+final _shortDate = DateFormat('d MMM');
+final _shortDateTime = DateFormat('d MMM, h:mm a');
+final _timeLabel = DateFormat('h:mma');
+
 /// [ThemeContext] gives widgets a terse, correct way to reach the theme so that
 /// nobody is tempted to hardcode a colour or a [TextStyle].
 extension ThemeContext on BuildContext {
   ThemeData get theme => Theme.of(this);
   ColorScheme get colors => Theme.of(this).colorScheme;
   TextTheme get texts => Theme.of(this).textTheme;
-  Size get screenSize => MediaQuery.sizeOf(this);
-  EdgeInsets get viewPadding => MediaQuery.viewPaddingOf(this);
   bool get isDark => Theme.of(this).brightness == Brightness.dark;
 
   /// [showSnack] shows a transient message. Errors must pass [isError] so they
@@ -60,18 +70,18 @@ extension DateTimeX on DateTime {
 
   /// `3rd July, Thursday` — the Dashboard date line.
   String get dashboardDate =>
-      '${day.ordinal} ${DateFormat.MMMM().format(this)}, '
-      '${DateFormat.EEEE().format(this)}';
+      '${day.ordinal} ${_monthName.format(this)}, '
+      '${_weekdayName.format(this)}';
 
   /// `03` — the calendar strip date number.
-  String get dayNumber => DateFormat('dd').format(this);
+  String get dayNumber => _dayNumber.format(this);
 
   /// `M` — the calendar strip weekday initial.
-  String get weekdayInitial => DateFormat.E().format(this)[0].toUpperCase();
+  String get weekdayInitial => _weekdayShort.format(this)[0].toUpperCase();
 
-  String get shortDate => DateFormat('d MMM').format(this);
+  String get shortDate => _shortDate.format(this);
 
-  String get shortDateTime => DateFormat('d MMM, h:mm a').format(this);
+  String get shortDateTime => _shortDateTime.format(this);
 
   /// [relativeLabel] prefers a human word over a date where one exists.
   String get relativeLabel {
@@ -80,6 +90,44 @@ extension DateTimeX on DateTime {
     if (isYesterday) return 'Yesterday';
     return shortDate;
   }
+
+  /// [dueStatus] is the task row's status line: `Overdue by 2 days`, `Due Today`,
+  /// `Due in 3 days`.
+  ///
+  /// Per-**day**, like [TasksState.overdueCount] and the "By date" grouping: a
+  /// task due at 09:00 reads `Due Today` for the rest of that day rather than
+  /// flipping to overdue over lunch.
+  ///
+  /// Reads [clock], not [DateTime.now]: the count above these rows is derived
+  /// from the same injectable clock, and a row that disagreed with its own
+  /// heading under test would disagree with it in production too.
+  String get dueStatus {
+    final days = dateOnly.difference(clock.now().dateOnly).inDays;
+
+    if (days == 0) return 'Due Today';
+    if (days == 1) return 'Due Tomorrow';
+    if (days > 1) return 'Due in $days days';
+
+    final late = -days;
+    return late == 1 ? 'Overdue by 1 day' : 'Overdue by $late days';
+  }
+
+  /// [countdown] is `in 10 mins` — how long until this moment, for the
+  /// Dashboard's Upcoming panel. Past moments give an empty string; the panel
+  /// only ever holds a future one.
+  String get countdown {
+    final left = difference(clock.now());
+    if (left.isNegative) return '';
+
+    if (left.inMinutes < 1) return 'in under a min';
+    if (left.inMinutes == 1) return 'in 1 min';
+    if (left.inMinutes < 60) return 'in ${left.inMinutes} mins';
+    if (left.inHours == 1) return 'in 1 hr';
+    return 'in ${left.inHours} hrs';
+  }
+
+  /// `10:30AM` — the clock reading beside a task's `Due Today`.
+  String get timeLabel => _timeLabel.format(this);
 }
 
 extension IntX on int {

@@ -3,13 +3,9 @@ part of 'home_widget_bloc.dart';
 /// [HomeWidgetState] is what the home screen widgets are built from
 /// (Requirement 13).
 ///
-/// Style A: it accumulates two independent slices — the task list and the
-/// transaction list — that arrive on separate streams and are projected together.
-///
-/// It is **not** hydrated. Everything here is a mirror of the database, which is
-/// itself persisted; a second copy would be one more thing that can disagree with
-/// it. [isEnabled] is the user's setting and is persisted by [SettingsBloc],
-/// which owns it and pushes it here.
+/// Not hydrated: everything here mirrors the database, which is already
+/// persisted. [isEnabled] is persisted by [SettingsBloc], which owns it and
+/// pushes it here.
 class HomeWidgetState extends Equatable {
   const HomeWidgetState({
     this.error = '',
@@ -25,34 +21,24 @@ class HomeWidgetState extends Equatable {
   final List<Task> tasks;
   final List<Transaction> transactions;
 
-  /// Whether the user wants widgets at all.
-  ///
-  /// **Null until [SettingsBloc] says**, which is a third state that matters:
-  /// `false` would be a guess, and a guess of `false` publishes nothing to a user
-  /// who wants widgets, while a guess of `true` puts task titles into an
-  /// unencrypted container belonging to a user who does not. Null means "not yet
-  /// told", and nothing is published in that state.
+  /// Whether the user wants widgets at all. Null until [SettingsBloc] says, and
+  /// nothing is published while null — a default of either value would guess
+  /// wrong for half the users.
   final bool? isEnabled;
 
   /// The last payload actually published, so an unchanged rebuild can skip the
   /// platform call.
   final HomeWidgetPayload? payload;
 
-  /// Where a widget tap wants to go, until the app has taken it there.
-  ///
-  /// The bloc names the destination and the listener navigates: a bloc that knows
-  /// about routes cannot be tested without a router, and this one is otherwise
-  /// pure enough to test with two fake streams.
+  /// Where a widget tap wants to go, until the app has taken it there. The bloc
+  /// names the destination; the listener navigates, so the bloc stays testable
+  /// without a router.
   final WidgetAction? pendingAction;
 
   /// [expenseMinorFor] is what was spent in [month] — the figure on the finance
-  /// widget.
-  ///
-  /// Always *this* month, never a selected one: a home screen widget has no
-  /// month selector, so it is always about now. `FinanceBloc.selectedMonth` is
-  /// wherever the user last scrolled the Finance tab to, and reading that here
-  /// would put February's spending on the home screen because someone was
-  /// browsing February.
+  /// widget. Callers must pass the current month, never
+  /// `FinanceBloc.selectedMonth`: the widget has no month selector, so it is
+  /// always about now.
   int expenseMinorFor(DateTime month) {
     var total = 0;
     for (final transaction in transactions) {

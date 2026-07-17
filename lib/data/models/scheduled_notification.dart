@@ -12,11 +12,10 @@ import 'package:everything_app/data/models/task.dart';
 /// what the user sees is in [props]**: two notifications with the same [id] but a
 /// different [body] are not equal, and the stale one is replaced.
 ///
-/// The whole object is serialised into the notification's payload. The OS can
-/// report back what is pending, but not when it was scheduled for or why, so the
-/// payload is what makes an already-scheduled notification comparable to a freshly
-/// planned one without keeping a second copy of the schedule on disk that could
-/// drift from the OS's.
+/// The whole object is serialised into the notification's payload: the OS reports
+/// what is pending but not when it was scheduled for or why, so the payload is
+/// what makes a pending notification comparable to a freshly planned one without
+/// a second copy of the schedule on disk that could drift from the OS's.
 class ScheduledNotification extends Equatable {
   const ScheduledNotification({
     required this.id,
@@ -114,15 +113,12 @@ class ScheduledNotification extends Equatable {
 /// [NotificationPlan] turns the task list and the user's settings into the exact
 /// set of notifications that should be pending right now (Requirement 5).
 ///
-/// It is a pure function of `(tasks, settings, now)`. Nothing here touches the OS,
-/// which is what makes every delivery rule in Requirement 5 unit-testable without
-/// a device.
+/// A pure function of `(tasks, settings, now)` that touches no OS API, so every
+/// delivery rule in Requirement 5 is testable without a device.
 ///
-/// The plan is **declarative**: it describes the desired end state, not the writes
-/// needed to reach it. [NotificationService] diffs it against what the OS actually
-/// holds. That is why a task edited, completed or deleted anywhere in the app
-/// cannot leave a stale reminder behind — the next plan simply does not contain
-/// it, and reconciliation cancels it.
+/// The plan is declarative — the desired end state, not the writes to reach it —
+/// and [NotificationService] diffs it against what the OS holds. That is why a
+/// task edited, completed or deleted cannot leave a stale reminder behind.
 class NotificationPlan {
   const NotificationPlan._();
 
@@ -144,9 +140,8 @@ class NotificationPlan {
 
   /// [build] is the complete set of notifications that should be pending.
   ///
-  /// Ordered by time and truncated to [maxScheduled], so if a user with hundreds
-  /// of tasks exceeds the platform ceiling, what survives is the soonest — never
-  /// an arbitrary slice.
+  /// Ordered by time and truncated to [maxScheduled], so a user past the platform
+  /// ceiling keeps the soonest rather than an arbitrary slice.
   static List<ScheduledNotification> build({
     required List<Task> tasks,
     required NotificationSettings settings,
@@ -182,9 +177,8 @@ class NotificationPlan {
   /// [_forTask] is every notification a single task generates: its reminders, its
   /// deadline, and the missed-task alert that follows the deadline.
   ///
-  /// A completed or cancelled task generates none — which is what silences a
-  /// reminder the moment the task is ticked off, with no explicit cancel call
-  /// anywhere in the app.
+  /// A completed or cancelled task generates none, which silences its reminder on
+  /// the next reconcile with no explicit cancel call anywhere in the app.
   static List<ScheduledNotification> _forTask(
     Task task,
     NotificationSettings settings,
@@ -193,22 +187,29 @@ class NotificationPlan {
 
     final dueDate = task.dueDate;
 
+    // A reminder set for the due moment itself says the same thing as the
+    // deadline notification, so only the deadline is kept — otherwise the user
+    // gets two alerts in the same second.
+    final hasDeadline = dueDate != null &&
+        settings.allows(NotificationKind.deadline);
+
     return [
       if (settings.allows(NotificationKind.reminder))
         for (final reminder in task.reminders)
-          ScheduledNotification(
-            id: ScheduledNotification.idFor(
-              'reminder:${task.id}:${reminder.id}',
+          if (!(hasDeadline && _sameMinute(reminder.at, dueDate)))
+            ScheduledNotification(
+              id: ScheduledNotification.idFor(
+                'reminder:${task.id}:${reminder.id}',
+              ),
+              kind: NotificationKind.reminder,
+              title: task.title,
+              body: dueDate == null
+                  ? 'Reminder'
+                  : 'Due ${dueDate.relativeLabel.toLowerCase()} at '
+                      '${_clock(dueDate)}',
+              at: reminder.at,
+              taskId: task.id,
             ),
-            kind: NotificationKind.reminder,
-            title: task.title,
-            body: dueDate == null
-                ? 'Reminder'
-                : 'Due ${dueDate.relativeLabel.toLowerCase()} at '
-                    '${_clock(dueDate)}',
-            at: reminder.at,
-            taskId: task.id,
-          ),
       if (dueDate != null) ...[
         if (settings.allows(NotificationKind.deadline))
           ScheduledNotification(
@@ -235,8 +236,8 @@ class NotificationPlan {
   /// [_dailySummaries] queues one digest per day for the next
   /// [dailySummaryHorizonDays] (Requirement 5.5).
   ///
-  /// A day with nothing due gets no notification. A digest that says "0 tasks
-  /// today" is noise, and noise is what gets an app's notifications turned off.
+  /// A day with nothing due gets no notification — a "0 tasks today" digest is
+  /// noise.
   static List<ScheduledNotification> _dailySummaries(
     List<Task> tasks,
     NotificationSettings settings,
@@ -285,11 +286,10 @@ class NotificationPlan {
 
   /// [_weeklySummary] queues the next weekly digest (Requirement 5.6).
   ///
-  /// Only the next one. Its body counts what was completed in the seven days
-  /// before it fires, and no count of a future week's completions can be known
-  /// now. Scheduling a month of them would be scheduling a month of wrong
-  /// numbers; the plan is rebuilt on every task change and every launch, so the
-  /// one that is queued is always current.
+  /// Only the next one: its body counts the seven days before it fires, and a
+  /// future week's completions cannot be known now — scheduling a month of them
+  /// would schedule a month of wrong numbers. The plan is rebuilt on every task
+  /// change and every launch, so the queued one is always current.
   static List<ScheduledNotification> _weeklySummary(
     List<Task> tasks,
     NotificationSettings settings,
@@ -370,4 +370,13 @@ class NotificationPlan {
 
     return '$hour:$minute $meridiem';
   }
+
+  /// [_sameMinute] compares to the minute because that is the granularity the
+  /// user picks a time at — seconds apart is still "the same alert" to them.
+  static bool _sameMinute(DateTime a, DateTime b) =>
+      a.year == b.year &&
+      a.month == b.month &&
+      a.day == b.day &&
+      a.hour == b.hour &&
+      a.minute == b.minute;
 }

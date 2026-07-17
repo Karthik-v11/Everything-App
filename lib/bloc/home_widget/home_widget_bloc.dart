@@ -16,32 +16,14 @@ part 'home_widget_state.dart';
 /// [HomeWidgetBloc] keeps the home screen widgets in step with the app
 /// (Requirement 13).
 ///
-/// It is the same shape as Phase 4's reminder reconciliation, for the same
-/// reason. The obvious implementation — push a new payload from every code path
-/// that writes a task or a transaction — is a call site in the task form, the
-/// checkbox, the delete, the recurrence rollover, the AI sheet, the share
-/// chooser, and every future one; it takes exactly one forgotten call to leave a
-/// widget showing yesterday's work. Instead this bloc **watches the same DAO
-/// streams every screen reads**, so any write anywhere in the app — including
-/// from code that does not exist yet — rebuilds and republishes the payload with
-/// no push call anywhere.
+/// It watches the same DAO streams every screen reads, so any write anywhere in
+/// the app republishes the payload with no push call at the write site.
 ///
-/// It reads *repositories*, not other blocs. That keeps it clear of CLAUDE.md
-/// §4.4 (no bloc reads another bloc's state) while still projecting two modules
-/// onto one surface, which no single feature bloc could do: the widget needs
-/// tasks and finance, and neither owns the other.
-///
-/// The widgets can be switched off, and [SettingsBloc] owns that switch and
-/// pushes it here via [ConfigureHomeWidgetEvent] — the same event-dispatch rule
-/// the notification configuration follows. When it is off, nothing is published
-/// and the shared container is emptied (see [HomeWidgetService] on why that
-/// matters).
-///
-/// Events:
-/// 1) [WatchHomeWidgetEvent] — start both streams. Fired once, at launch.
-/// 2) [SyncHomeWidgetEvent] — rebuild and publish. Coalesced; never called by a
-///    feature directly.
-/// 3) [ConfigureHomeWidgetEvent] — the user's switch, pushed by [SettingsBloc].
+/// It reads repositories, not other blocs (CLAUDE.md §4.4), which is what lets
+/// it project tasks and finance onto one surface when neither module owns the
+/// other. [SettingsBloc] owns the on/off switch and pushes it via
+/// [ConfigureHomeWidgetEvent]; off empties the shared container rather than
+/// merely stopping publishes.
 class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
   HomeWidgetBloc({
     required this.repository,
@@ -60,9 +42,9 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
   final TasksRepository tasksRepository;
   final FinanceRepository financeRepository;
 
-  /// Coalesces a burst of writes into one publish, exactly as `TasksBloc` does
-  /// for the notification schedule. A restore or a recurrence rollover can write
-  /// a hundred rows; the home screen needs the end state, not a hundred redraws.
+  /// Coalesces a burst of writes into one publish: a restore or recurrence
+  /// rollover can write a hundred rows, and the home screen needs only the end
+  /// state.
   bool _syncPending = false;
 
   FutureOr<void> _onWatchHomeWidgetEvent(
@@ -71,9 +53,8 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
   ) async {
     await repository.initialize();
 
-    // The finance and tap streams are started from here so that launch stays one
-    // event. Each handler holds its own emitter, which is legal — they are
-    // different event types, so bloc treats them as independent handlers.
+    // Separate events so each stream gets its own handler and emitter; launch
+    // stays a single dispatch.
     add(const WatchHomeWidgetFinanceEvent());
     add(const WatchHomeWidgetTapsEvent());
 
@@ -103,13 +84,9 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
     );
   }
 
-  /// [_onWatchHomeWidgetTapsEvent] wires both of the tap paths.
-  ///
-  /// A tap on a cold app arrives through [HomeWidgetRepository.initialTap]; a tap
-  /// while it is running arrives on the stream. Both land in
-  /// [HomeWidgetState.pendingAction], which the listener widget acts on and then
-  /// clears — the bloc names the destination but never navigates, because a bloc
-  /// that knows about routes is a bloc that cannot be tested without one.
+  /// [_onWatchHomeWidgetTapsEvent] wires both tap paths: a cold-start tap via
+  /// [HomeWidgetRepository.initialTap] and a warm one on the stream. Both land in
+  /// [HomeWidgetState.pendingAction]; the listener widget navigates and clears it.
   FutureOr<void> _onWatchHomeWidgetTapsEvent(
     WatchHomeWidgetTapsEvent event,
     Emitter<HomeWidgetState> emit,
@@ -139,10 +116,8 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
     emit(state.copyWith(clearPendingAction: true));
   }
 
-  /// [_queueSync] asks for exactly one publish per burst.
-  ///
-  /// `onData` cannot await, so the work is queued as an event rather than done
-  /// inline — the same reason `TasksBloc` queues its reschedule.
+  /// [_queueSync] asks for exactly one publish per burst. Queued as an event
+  /// because `onData` cannot await.
   void _queueSync() {
     if (_syncPending) return;
     _syncPending = true;
@@ -157,10 +132,9 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
     // push below queues a fresh sync rather than being swallowed.
     _syncPending = false;
 
-    // Nothing is known about the user's choice until Settings has spoken.
-    // Publishing against the default first would put task titles into an
-    // unencrypted container belonging to a user who had switched the widgets
-    // off — briefly, and then withdraw them, which is not a defence.
+    // Null until Settings reports the switch: defaulting would publish task
+    // titles to an unencrypted container belonging to a user who turned widgets
+    // off.
     final isEnabled = state.isEnabled;
     if (isEnabled == null) return;
 
@@ -175,9 +149,8 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
         now: now,
       );
 
-      // Unchanged data is a redraw the home screen does not need. The widget is
-      // republished on every write in the app, and most writes touch neither
-      // today's tasks nor this month's spend.
+      // Every write in the app reaches here, but most touch neither today's
+      // tasks nor this month's spend; skip the platform call when unchanged.
       if (payload == state.payload) return;
 
       final response = await repository.push(payload);
@@ -192,11 +165,9 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
     }
   }
 
-  /// [_onConfigureHomeWidgetEvent] applies the user's switch.
-  ///
-  /// Turning them off clears the shared container rather than merely stopping
-  /// future publishes: the point of the switch is that the data leaves the
-  /// unencrypted store, not that it stops being refreshed.
+  /// [_onConfigureHomeWidgetEvent] applies the user's switch. Off clears the
+  /// shared container — the point is that the data leaves the unencrypted store,
+  /// not that it stops being refreshed.
   FutureOr<void> _onConfigureHomeWidgetEvent(
     ConfigureHomeWidgetEvent event,
     Emitter<HomeWidgetState> emit,
@@ -205,15 +176,14 @@ class HomeWidgetBloc extends Bloc<HomeWidgetEvent, HomeWidgetState> {
     emit(state.copyWith(isEnabled: event.isEnabled));
 
     if (event.isEnabled) {
-      // Publish now rather than waiting for the next write: a user who has just
-      // switched the widgets on is looking at their home screen.
+      // Publish now rather than on the next write — the user is looking at their
+      // home screen.
       add(const SyncHomeWidgetEvent());
       return;
     }
 
-    // Only when it is a change: `SettingsBloc` republishes its whole
-    // configuration on every settings change, so an untouched "off" would
-    // otherwise clear the container on every unrelated toggle.
+    // `SettingsBloc` republishes its whole configuration on every change, so
+    // clear only on an actual on→off transition.
     if (wasEnabled == false) return;
 
     try {

@@ -116,12 +116,10 @@ class ToBuyItem extends Equatable {
 /// [ToBuyPlan] turns the to-buy list into the set of reminders that should be
 /// pending right now (Requirement 7.3).
 ///
-/// It is the To-Buy list's counterpart to [NotificationPlan], and it is a pure
-/// function of `(items, settings, now)` for the same reason: the schedule is
-/// *reconciled* rather than written, so nothing in the app has to remember to
-/// cancel a reminder. An item that is purchased, has its reminder removed, or is
-/// deleted simply stops appearing in the plan, and [NotificationService.applyPlan]
-/// withdraws its alarm.
+/// The To-Buy list's counterpart to [NotificationPlan], and pure for the same
+/// reason: the schedule is reconciled rather than written, so an item that is
+/// purchased, deleted, or has its reminder removed simply stops appearing in the
+/// plan and [NotificationService.applyPlan] withdraws its alarm.
 ///
 /// It reconciles only [NotificationKind.toBuyKinds], so it never touches the task
 /// reminders sharing the same OS queue.

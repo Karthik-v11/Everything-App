@@ -98,6 +98,18 @@ dev_dependencies:
   integration_test (sdk)
 ```
 
+```yaml
+  # Phase 14. `clock` is what makes a golden of a dated screen possible: it is
+  # `DateTime.now()` in production and freezable under `withClock` in a test.
+  clock: ^1.1.2
+```
+
+**`golden_toolkit` was not added** (Phase 14). It is unmaintained, and the only thing this app needed
+from it was `loadAppFonts()` — which is a `FontLoader` over three known paths, plus MaterialIcons off
+the SDK. That is `test/flutter_test_config.dart`, and it throws when a font is missing instead of
+rendering boxes. `glados` and `integration_test` are still unused: the properties were asserted with
+plain unit tests, and nothing yet needs a driver.
+
 Deferred to their own phases: `googleapis` + `google_sign_in` (Drive backup),
 `pdf` + `printing` (export), `geofence_service` (location reminders).
 
@@ -1006,9 +1018,133 @@ model, which the fallback already covers.
 **What no build can check:** the other three spike numbers. Nothing here has run on a phone, and the
 plan's gate is **not cleared**.
 
-### Phase 14 — Hardening
+### Phase 14 — Hardening ✅ built, ⚠️ the on-device half is not cleared
 Launch < 1 s, task create < 200 ms, search < 300 ms — measured on device, not in debug mode.
 Golden tests for the four reference screens. Accessibility pass. Store assets.
+
+**The four reference screens have goldens, and they paid for themselves on the first run.** The
+accessibility pass found a short list rather than a long one. The performance bar splits cleanly in
+two: the parts a host can measure are measured and are nowhere near their budgets, and the part that
+needs a phone is named below rather than asserted. Store assets are further from done than "icons
+exist" suggests.
+
+Seven things worth carrying forward:
+
+1. **A state getter that reads the wall clock is not a function of its state, and three of them were.**
+   `TasksState.todayTasks` and `.dateGroups` called `DateTime.now()` *inside the getter*, as did the
+   weather and news staleness getters — so the same state rendered differently depending on when you
+   looked at it, and no golden of the Dashboard or Tasks could ever be stable. This is **the same bug
+   Phase 12 caught in `HomeWidgetPayload.build`** ("documented as a pure function of `(tasks, now)` —
+   but it called `Task.isOverdue`, which reads `DateTime.now()` internally"), one layer up, and the
+   codebase already had the right answer sitting next to it: `FinanceState.totalsFor(now)` takes an
+   injected `now`, for exactly the reason Phase 6, note 1 explains. The literal calls in `bloc/`,
+   `view/` and `Task.isOverdue` now go through `clock.now()`, which is `DateTime.now()` in production
+   and freezable under `withClock` in a test. **The goldens are what forced this into the open** — the
+   wall-clock reads were invisible for eleven phases because nothing had ever tried to render a screen
+   at a known instant.
+2. **`core/utils/extensions.dart` is protected, reads the clock, and that is the ceiling on these
+   goldens — flagged, not fixed (§0).** `isToday`, `isTomorrow`, `isYesterday` and `isPast` each call
+   `DateTime.now()` directly, and `relativeLabel` is built on the first three. `task_card` renders
+   `due.relativeLabel`, so under a frozen clock the Tasks day sections read `15 Jan` where a device on
+   that date reads **Today**. That is *stable* — wrong by the same amount every day, so the golden
+   still pins layout, type and colour — but it means the goldens do not exercise the relative wording,
+   which is a real gap on the one screen whose grouping is the feature. The fix is four lines
+   (`DateTime.now()` → `clock.now()`) in a file agents may not touch, and it belongs to the developer
+   alongside §4's theme values and Phase 13's `HF_TOKEN` constant. `Task.isOverdue` lives in
+   `data/models/` and is **not** protected, which is why the red Overdue section in the Tasks golden is
+   real while Today/Tomorrow is not.
+3. **The goldens caught a currency bug on the first render, which is the entire argument for them.**
+   **`JetBrainsMono.ttf` has no `U+20B9` (₹).** Verified against the font tables, not inferred: Inter
+   and Noto Serif carry the glyph, JetBrains Mono does not. §4 assigns **monospace to amounts**, so
+   every figure on Finance — the donut total, the budget bar, the income/spent/saved row, every
+   transaction — asks a font for a glyph it does not have. The Dashboard's `₹33,000` renders correctly
+   because it is styled in Inter. So the app renders the rupee sign in two different typefaces on two
+   screens, and on Finance it survives only on OS font fallback, meaning the symbol comes out in a
+   different face from the digits beside it. **This is invisible on a device** — the OS quietly
+   substitutes — which is exactly why eleven phases of running the app never surfaced it, and a golden
+   with only the bundled fonts loaded did so immediately. The Finance golden is left honest, showing
+   the tofu, rather than papered over with a fallback the harness would have to fake. The fix is a
+   developer decision: subset a ₹ into JetBrains Mono, or style amounts in Inter and give up the
+   monospace figure alignment §4 asked for. **Nothing in the app is broken; the symbol is just not
+   ours to place.**
+4. **Task create is measured at ~0.13 ms against a 200 ms budget, and the number's value is what it
+   rules out.** Five creates through the real `TasksRepository → TasksService → TasksDao` path against
+   a **seeded 10,000-row table**, warmup discarded: 395 µs worst, ~130 µs steady. The benchmark
+   asserts the **FTS triggers actually fired** (`search_index` count goes 10,000 → 10,006 across the
+   measured writes) — without that it could pass while measuring a write that skipped Phase 9's
+   trigger, which is the worthless case. The honest reading is not "the bar is cleared": 200 ms is a
+   *user-perceived* budget (tap → the task is on screen) and this measures the database portion, which
+   turns out to be **0.1% of it**. So if a device ever misses 200 ms on task create, the cause is
+   upstream of SQLite — a bloc rebuild or a frame — and this bench is what lets that be said without
+   guessing.
+5. **The pre-existing `ai_parser_test` failure was never a classifier bug — the test's example was
+   wrong, and four phases of "unrelated" hid it.** It has been red since Phase 10 and waved through by
+   Phases 11, 12 and 13 as a "classifier edge". It is not an edge: `classify('Buy milk tomorrow')`
+   returns `toBuy`, and **that is correct**. `AiIntent` has ten values, the sheet renders a chip for
+   every one (`for (final mode in AiIntent.values)`), and `AiBloc` has a full create branch and preview
+   card for `toBuy` — so "Buy milk tomorrow" preselects To Buy and files a shopping item, which is what
+   it is. The test was written when the line was a stand-in for a generic to-do and it picked the one
+   example that later became a real destination. The assertion is now pinned rather than deleted (a
+   shopping line *is* a to-buy item; `Call the dentist` is the plain to-do) — deleting it would have
+   been hiding it twice. **The lesson is the "pre-existing and unrelated" label itself**, which is how
+   a wrong test survived three phases of being read and not examined.
+6. **`TasksService.create` was returning `'DEBUG: $e'` to the user.** The app's most-used write path
+   (Phase 3: "the most-used module — build it first and completely") caught its exception and put the
+   raw `toString()` into the failure message the UI shows in a SnackBar — flush-left indented, the
+   shape of debugging left behind. Every sibling method in the same file returns a sentence. It now
+   does too. Two things this is worth stating for: it is the only `DEBUG:` in `lib/`, and it violated
+   §18 quietly for however long it stood — a caught exception leaking its type name to a user is the
+   failure mode §18 exists to prevent, and nothing about it looked wrong from the outside because the
+   path only runs when a create fails.
+7. **The accessibility pass was short because the codebase was already doing the work.** Tooltips are
+   the house pattern — 40 `tooltip:` against 32 `IconButton(` — so the audit's long list of candidates
+   collapsed to **seven** real gaps: two untooltipped icon buttons, a colour swatch that announced
+   nothing at all, and four selection chips whose **selected state was carried by fill colour and font
+   weight alone**, which a screen reader cannot hear. Those four now pass `button: true` + `selected:`
+   and no `label:`, because each already has a visible `Text` that would be overridden — the reason
+   `app_bottom_nav` *does* pass one is that its child is an icon. The four chips were deliberately
+   **not** unified into a shared widget: the three type-chips are near-identical bodies over three
+   unrelated enums with no shared interface, so one generic chip would mean extractor callbacks
+   threaded through three working call sites, and the fourth is text-only with different styling. §0's
+   "minimum code for the ask" wins over a de-duplication that is only skin-deep. The real precondition
+   — a shared `label`/`icon` interface on those enums — is named here rather than smuggled in under an
+   accessibility fix.
+
+**Store assets are not one item, and the gap that matters is not the icons.** Launcher icons are
+genuinely done: `flutter_launcher_icons` is configured and generated for both platforms, adaptive
+Android with the §4 `#0F0F0F` background, and iOS 18 dark and tinted variants. What is missing is
+everything else, and one piece of it is a hard gate: **there is no `PrivacyInfo.xcprivacy` on any of
+the three iOS bundles.** `ios/EverythingWidget/EverythingWidget.swift` reads
+`UserDefaults(suiteName:)` — Phase 12's App Group channel, the whole mechanism by which a widget draws
+anything — and that is a **required-reason API**. Twelve of the app's own plugins already ship
+manifests, so the mechanism is plainly in play; the three first-party bundles (Runner, the share
+extension, the widget) declare nothing. Apple rejects this at upload with ITMS-91053, so **the app
+cannot currently be submitted to the App Store** — which no build check catches, because it is not a
+build error. It is not written here on purpose: a manifest with guessed reason codes is a false
+declaration to Apple and worse than an absent one, and the correct codes depend on the final plugin
+set at submission. The rest — listing copy, screenshots, a privacy policy URL, `fastlane`/`metadata` —
+is developer and store work, not code, and none of it exists.
+
+**Tests (220 passing, up from 214; this phase adds 5 and repairs 1):** four goldens and a benchmark.
+The goldens are of the **real** thing or they are worth nothing, which is the same argument Phase 2
+made about testing encryption against the bytes on disk: they render the production `ThemeData` via
+`AppTheme.build`, on a fixed 390×844 surface at 1:1, with the three real bundled fonts **and**
+MaterialIcons loaded off the SDK by hand — a widget test builds no asset bundle, so every glyph, text
+and icon alike, otherwise comes out an empty box, and *a golden of a screen of boxes passes forever
+and proves nothing*. `test/flutter_test_config.dart` throws rather than degrading if a font is missing,
+for the same reason `AppDatabase._verifyKeyed` shouts about `PRAGMA cipher_version`. Each golden was
+**looked at**, not just diffed: Library's amber tiles and derived counts, the Tasks calendar strip with
+its red Overdue section and priority dots, Finance's donut and its 116%-over budget bar, the
+Dashboard's serif greeting and amber weather pill. That is how the ₹ was found.
+
+**Verified:** `flutter analyze` clean; **220 tests pass, 0 failing — the suite is green for the first
+time since Phase 10.** The Android build succeeds with `clock` added. No protected path was modified.
+The goldens were checked to actually **bite** rather than merely pass: changing one visible string in
+`library_page` fails its golden, and reverting passes it — a golden that cannot fail is the same trap
+as Phase 2's round-trip-through-the-keyed-handle test, and the check is what tells them apart.
+**What no host can check is the device list in §8** — launch < 1 s in particular has not been measured
+at all, and is not measurable here: it needs `flutter run --profile --trace-startup` on a real phone,
+because a debug-mode launch on this Mac measures the JIT, not the app.
 
 ---
 
@@ -1027,9 +1163,16 @@ What earns a test:
 - **Data-integrity rules** — recurrence generating exactly one occurrence (Property 4), watchlist
   progress clamping/completion (Property 16), notification reconciliation and queue partitioning.
 - **Search** — the < 300 ms bar against a seeded 10k-item DB (Property 5), benchmarked not assumed.
+- **The performance budgets** — task create < 200 ms against the same seeded 10k DB, through the real
+  repository path with the FTS triggers asserted live (Phase 14). Same rule as search: benchmarked,
+  not assumed.
+- **The four reference screens** — goldens (Phase 14). The exception to "skip trivial UI", and only
+  these four: §4 defines their design precisely, and a golden is the only thing that notices when a
+  colour, a typeface or a grouping quietly moves. They render the production theme and the real
+  bundled fonts, because a golden of the wrong pixels is worse than none.
 
-Everything else (individual bloc state sequences, widget/golden screens, broad integration flows)
-is written only when a specific bug or a genuinely high-risk path calls for it — not by default.
+Everything else (individual bloc state sequences, other widget/golden screens, broad integration
+flows) is written only when a specific bug or a genuinely high-risk path calls for it — not by default.
 
 Tooling: `glados` for property tests, `bloc_test`/`mocktail` where a bloc test is warranted.
 Repository tests run against an **in-memory Drift DB** (`NativeDatabase.memory()`), so no SQLCipher
@@ -1047,6 +1190,9 @@ key is needed in CI.
 | ~~Home widgets are native, not Flutter~~ | **Held.** Isolated in Phase 12; the app is fully usable with them switched off, and the Settings switch makes that a real choice |
 | ~~iOS Share Extension is fiddly (app groups, entitlements)~~ | **Held, and it did not slip.** Both iOS targets build and embed; the fiddly parts are scripted in `tool/add_ios_extension_targets.rb` rather than left as Xcode folklore |
 | Widget data sits outside the SQLCipher database | **New, and structural — it cannot be designed away.** A widget process has no key. Mitigated by publishing the minimum (titles, counts, one formatted figure), **never the vault**, and a Settings switch that erases the container (Phase 12, note 1) |
+| **No iOS privacy manifest on any first-party bundle** | **New, open, and a hard gate.** The widget reads `UserDefaults(suiteName:)` — a required-reason API — and Runner/share-extension/widget declare nothing, so the App Store rejects at upload (ITMS-91053). No build catches it. Not written speculatively: wrong reason codes are a false declaration and worse than none (Phase 14) |
+| **JetBrains Mono has no ₹ glyph** | **New, open, and invisible on a device.** §4 puts amounts in monospace; the font lacks `U+20B9`, so Finance's figures survive on OS fallback and render the symbol in a different face from its digits. Found by a golden, not by use. Fix is a developer call: subset the glyph in, or style amounts in Inter and lose the figure alignment (Phase 14) |
+| Wall-clock reads in protected `core/utils/extensions.dart` | **Flagged, not fixed (§0).** `isToday`/`isTomorrow`/`isYesterday`/`isPast` call `DateTime.now()`, so the Tasks golden cannot exercise Today/Tomorrow wording. Four-line developer change; everything else now goes through `clock.now()` (Phase 14) |
 | Plugin `compileSdk` outruns the installable Android SDK | Pinned in `android/build.gradle.kts`, scoped to the exact broken value so it retires itself upstream (Phase 12) |
 | SQLCipher + Drift build issues on iOS | Proven in Phase 2, before any feature depends on it |
 | FTS5 misses the 300 ms bar | Benchmarked at Phase 9 against a seeded 10k dataset, not at the end |
@@ -1059,7 +1205,12 @@ key is needed in CI.
 
 Phases 1–12 are done. Phase 13 is **built but not spiked** — its code is complete and both platforms
 build, but the plan's own gate (measure on a real device, drop it if the numbers are bad) has not been
-cleared, so it is not yet a decision. Next:
+cleared, so it is not yet a decision. Phase 14 is **built, with its on-device half open**: the suite is
+green (220, 0 failing) and the host-measurable budgets are measured, but launch < 1 s has not been
+measured at all, and it left three things on the developer's desk that an agent may not or should not
+do — the ₹ glyph (§4/Phase 14 note 3), the four-line `clock.now()` change in protected
+`core/utils/extensions.dart` (note 2), and the iOS privacy manifest that currently blocks submission.
+Next:
 
 1. **Add the two API keys to `.env`** — `WEATHER_API_KEY` (OpenWeatherMap) and `NEWS_API_KEY`
    (NewsAPI). Until they are there the Dashboard renders in full and says, in the weather pill and
@@ -1159,3 +1310,33 @@ cleared, so it is not yet a decision. Next:
     control wired to nothing. Doing it properly is its own phase: every string in ~40 screens, plus a
     second pass in the platforms' resource systems for the widgets, plus `Helpers.formatMoney`'s
     hardcoded `en_IN`/`₹` — which lives in protected `core/utils/` and is a developer change.
+15. **Write the iOS privacy manifest before attempting any submission — this blocks the App Store
+    outright** (Phase 14). The widget's `UserDefaults(suiteName:)` is a required-reason API and none of
+    the three bundles declares one, so the upload fails with ITMS-91053 and no build will warn you. It
+    needs a `PrivacyInfo.xcprivacy` on Runner, the share extension **and** the widget (three bundles,
+    three files), with the reason codes that are actually true of the final plugin set — `CA92.1` for
+    the App Group's UserDefaults, plus whatever `path_provider`/`flutter_secure_storage` pull in. It is
+    deliberately not guessed here: a false declaration to Apple is worse than an absent one. While
+    there, the rest of "store assets" is untouched — listing copy, screenshots, a privacy policy URL.
+    The icons are done and need nothing.
+16. **Decide the ₹, and it is a design decision, not a bug fix** (Phase 14, note 3). JetBrains Mono has
+    no `U+20B9`, and §4 puts amounts in monospace — so Finance's figures render the rupee through OS
+    fallback in a face that does not match their digits, on every device, today. Either subset a ₹ into
+    `JetBrainsMono.ttf` (keeps §4's monospace figure alignment, costs a font-pipeline step) or style
+    amounts in Inter (free, gives up the alignment that made §4 choose monospace). **Look at the
+    Finance screen on a phone next to the Dashboard before choosing** — the Dashboard's `₹33,000` is
+    Inter and correct, so the two screens are a live A/B of the answer. Re-generate the Finance golden
+    once decided: it currently, honestly, records the tofu.
+17. **Four lines in `core/utils/extensions.dart` would finish the Tasks golden** (Phase 14, note 2).
+    `isToday`/`isTomorrow`/`isYesterday`/`isPast` call `DateTime.now()`; routing them through
+    `clock.now()` (the package is already a direct dependency and the rest of the app is converted)
+    makes `relativeLabel` honour a frozen clock, at which point the Tasks golden exercises the
+    Today/Tomorrow grouping that is the screen's whole feature instead of rendering `15 Jan`. Protected
+    path, so it is the developer's to make; the goldens then need one `--update-goldens`.
+18. **Measure launch on a device — the one budget with no number at all** (Phase 14). Task create is
+    ~0.13 ms against 200 ms and search is benchmarked under 300 ms, both against a seeded 10k database,
+    so the two bars with host-measurable components are covered. Launch < 1 s is not: it wants
+    `flutter run --profile --trace-startup` on a real mid-range phone, because a debug launch measures
+    the JIT rather than the app. Worth doing on the same run as Phase 13's spike, since `start.dart`
+    already awaits its bootstrap concurrently and the on-device LLM's `+51.9 MB` is exactly the kind of
+    thing that shows up first at launch.

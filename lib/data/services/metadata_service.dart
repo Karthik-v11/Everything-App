@@ -7,17 +7,12 @@ import 'package:everything_app/data/models/json_response.dart';
 /// [MetadataService] fetches a page's real title and preview image
 /// (Requirement 6.1).
 ///
-/// It is the app's **third and last** networked service, and the only one whose
-/// failure is uninteresting. A bookmark is saved from [UrlMetadata.read] — which
-/// needs no network — before this is ever called, so what this adds is a nicer
-/// title and a picture. Offline, the bookmark is already saved and already
-/// correct; this simply never runs, and nothing on screen is waiting for it.
+/// Its failure is uninteresting: the bookmark is already saved from
+/// [UrlMetadata.read], which needs no network, before this is ever called.
 ///
-/// That is why it does not parse HTML properly. A real parser would be a new
-/// dependency and a much larger surface for the sake of two `<meta>` tags, so this
-/// reads the Open Graph tags with a regex over the head of the document and gives
-/// up quietly on anything it does not recognise. Being wrong here costs a
-/// placeholder title; being slow here costs the user's save.
+/// It reads the Open Graph tags with a regex over the head of the document
+/// rather than parsing HTML — a real parser is a large dependency for the sake
+/// of two `<meta>` tags — and gives up quietly on anything unrecognised.
 class MetadataService {
   MetadataService({required this.dio}) {
     dio.options
@@ -26,8 +21,8 @@ class MetadataService {
       ..connectTimeout = _timeout
       ..responseType = ResponseType.plain
       ..followRedirects = true
-      // A page that answers with anything else is not one we can read a title out
-      // of, and Dio should hand it back rather than throw.
+      // Dio should hand back a non-2xx page rather than throw; there is just no
+      // title to read out of it.
       ..validateStatus = (status) => status != null && status < 500;
 
     dio.interceptors.add(XClientInterceptor());
@@ -35,21 +30,17 @@ class MetadataService {
 
   final Dio dio;
 
-  /// Short on purpose. This runs *after* the bookmark is already saved and on
-  /// screen, so a slow page must not keep a request alive for ten seconds to
-  /// improve a title the user has stopped looking at.
+  /// Short on purpose: this runs after the bookmark is saved and on screen, so a
+  /// slow page must not hold a request open to improve a title nobody awaits.
   static const Duration _timeout = Duration(seconds: 5);
 
-  /// How much of the document to read. Open Graph tags live in `<head>`, and a
-  /// megabyte of article body would be downloaded to find something in its first
-  /// few kilobytes.
+  /// How much of the document to read. Open Graph tags live in `<head>`, so a
+  /// megabyte of article body need not be downloaded to find them.
   static const int _maxBytes = 64 * 1024;
 
-  /// [fetch] returns a [UrlMetadata] enriched with whatever the page actually says
-  /// about itself, falling back to the derived values field by field.
-  ///
-  /// Field by field, not all-or-nothing: a page with an `og:image` and no `og:title`
-  /// should still contribute its image.
+  /// [fetch] returns a [UrlMetadata] enriched with what the page says about
+  /// itself, falling back to the derived values field by field — a page with an
+  /// `og:image` and no `og:title` still contributes its image.
   Future<JsonResponse> fetch(String url) async {
     final derived = UrlMetadata.read(url);
 
@@ -83,16 +74,14 @@ class MetadataService {
         data: UrlMetadata(
           title: title ?? derived.title,
           source: derived.source,
-          // The derived thumbnail wins where there is one: YouTube's `og:image` is
-          // the same picture this already knows how to name without asking, and
-          // asking is what we are trying to avoid.
+          // The derived thumbnail wins: YouTube's `og:image` is the same picture
+          // this already knows how to name without a request.
           thumbnailUrl: derived.thumbnailUrl ?? _absolute(image, url),
         ),
       );
     } on DioException catch (error) {
-      // Every network failure lands here, and every one of them is fine: the
-      // bookmark already exists with what could be derived from its URL, and the
-      // user is told nothing because nothing has gone wrong for them.
+      // Every network failure is fine and never shown: the bookmark already
+      // exists with what was derived from its URL.
       return JsonResponse.failure(
         statusCode: 502,
         message: DioExceptionOf.exceptionFromDioError(error).errorMessage,
@@ -105,19 +94,26 @@ class MetadataService {
     }
   }
 
+  static final Map<String, List<RegExp>> _patternCache = {};
+
   /// [_meta] reads one Open Graph tag. The attribute order is not fixed in the
   /// wild — `content` before `property` is common — so both orders are matched.
   static String? _meta(String html, String property) {
-    final patterns = [
-      RegExp(
-        '''<meta[^>]+(?:property|name)=["']$property["'][^>]*content=["']([^"']*)["']''',
-        caseSensitive: false,
-      ),
-      RegExp(
-        '''<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']$property["']''',
-        caseSensitive: false,
-      ),
-    ];
+    // Keyed by property because the pattern interpolates it; the set of
+    // properties read is small and fixed.
+    final patterns = _patternCache.putIfAbsent(
+      property,
+      () => [
+        RegExp(
+          '''<meta[^>]+(?:property|name)=["']$property["'][^>]*content=["']([^"']*)["']''',
+          caseSensitive: false,
+        ),
+        RegExp(
+          '''<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']$property["']''',
+          caseSensitive: false,
+        ),
+      ],
+    );
 
     for (final pattern in patterns) {
       final value = pattern.firstMatch(html)?.group(1)?.trim();
@@ -139,8 +135,7 @@ class MetadataService {
   }
 
   /// [_absolute] resolves a protocol-relative or root-relative `og:image` against
-  /// the page it came from. Plenty of sites serve `/images/card.png`, which is not
-  /// a URL any image widget can load.
+  /// its page. Many sites serve `/images/card.png`, which no image widget loads.
   static String? _absolute(String? image, String pageUrl) {
     if (image == null || image.isEmpty) return null;
     if (image.startsWith('http')) return image;

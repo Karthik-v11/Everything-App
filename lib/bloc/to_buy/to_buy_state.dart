@@ -3,9 +3,8 @@ part of 'to_buy_bloc.dart';
 /// [ToBuyState] holds everything the To Buy screen renders.
 ///
 /// [items] is the complete list, purchased entries included — the reminder plan
-/// needs to see a purchased item to know its alarm should be withdrawn, and the
-/// screen groups them rather than hiding them. What the user sees is
-/// [visibleItems], derived from it.
+/// must see a purchased item to know its alarm should be withdrawn. What the user
+/// sees is [visibleItems], derived from it.
 class ToBuyState extends Equatable {
   const ToBuyState({
     this.isLoading = false,
@@ -28,11 +27,11 @@ class ToBuyState extends Equatable {
   final String query;
 
   /// The user's notification configuration, pushed in by [SettingsBloc]. Null until
-  /// it has reported, which is what stops a reminder being armed against defaults
-  /// the user may have turned off.
+  /// it reports, which stops reminders being armed against defaults the user may
+  /// have turned off.
   final NotificationSettings? notificationSettings;
 
-  /// [pending] is what is still to be bought — the list's actual subject.
+  /// [pending] is what is still to be bought.
   List<ToBuyItem> get pending => [
         for (final item in items)
           if (!item.isPurchased && _matches(item)) item,
@@ -66,12 +65,10 @@ class ToBuyState extends Equatable {
 
   bool get isFiltered => priority != null || query.isNotBlank;
 
-  /// [pendingTotalMinor] is what the unbought items would cost, for the items that
-  /// have a price at all.
+  /// [pendingTotalMinor] is what the priced unbought items would cost.
   ///
-  /// Integer minor units, summed as integers — the same rule as the Finance module,
-  /// and for the same reason: a total the user is going to compare against their
-  /// budget must not be the result of adding up binary floats.
+  /// Integer minor units summed as integers, as in Finance: a total compared
+  /// against a budget must not come from adding binary floats.
   int get pendingTotalMinor {
     var total = 0;
     for (final item in pending) {
@@ -80,9 +77,8 @@ class ToBuyState extends Equatable {
     return total;
   }
 
-  /// [pendingPricedCount] is how many of the pending items actually carry a price,
-  /// so the screen can say what [pendingTotalMinor] is a total *of* rather than
-  /// implying it covers everything on the list.
+  /// [pendingPricedCount] is how many pending items carry a price, so the screen can
+  /// say what [pendingTotalMinor] covers rather than implying it covers the list.
   int get pendingPricedCount {
     var count = 0;
     for (final item in pending) {

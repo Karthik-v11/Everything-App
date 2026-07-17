@@ -7,8 +7,7 @@ import 'package:everything_app/debug/app_bloc_observer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hydrated_bloc/hydrated_bloc.dart';
 import 'package:local_auth/local_auth.dart';
@@ -50,6 +49,14 @@ class Bootstrap {
 /// first query, in drift's background isolate. Nothing about the security
 /// verification changes — it simply no longer happens on the UI isolate ahead of
 /// the first frame.
+///
+/// Nor is the IANA timezone parse. It is ~440 KB of CPU on the UI isolate, and
+/// being CPU-bound it cannot overlap the I/O-bound futures above — it blocks the
+/// event loop they need to complete on. Its only consumer is
+/// [NotificationService.initialize], which calls `initializeTimeZones()` itself
+/// and runs after the first frame, so the parse happens there instead. It cannot
+/// be moved to an isolate: `initializeTimeZones()` populates isolate-local state,
+/// so a spawned isolate would parse and discard it.
 Future<void> startApplication(Widget Function(Bootstrap) builder) async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -65,9 +72,8 @@ Future<void> startApplication(Widget Function(Bootstrap) builder) async {
 
   final documentsFuture = getApplicationDocumentsDirectory();
 
-  final (_, _, storage, documents, temporary, keyResponse) = await (
+  final (_, storage, documents, temporary, keyResponse) = await (
     _loadEnvironment(),
-    _registerInferenceEngines(),
     documentsFuture.then(
       (directory) => HydratedStorage.build(
         storageDirectory: HydratedStorageDirectory(directory.path),
@@ -119,34 +125,6 @@ Future<void> startApplication(Widget Function(Bootstrap) builder) async {
       ),
     ),
   );
-}
-
-/// [_registerInferenceEngines] tells `flutter_gemma` which inference engine it
-/// may use (Phase 13).
-///
-/// It **registers, it does not load**: no weights are read and no memory is
-/// claimed here, so it costs a function call rather than the seconds and
-/// hundreds of MB that loading a model costs. That happens later, only if the
-/// user has switched the feature on and only once [OnDeviceModelBloc] asks —
-/// which is why this belongs in the concurrent block rather than being the one
-/// thing that delays the first frame.
-///
-/// It is here at all because `flutter_gemma` registers **no** engine by default
-/// and resolves them at the first model call, so a missing registration surfaces
-/// as a `StateError` deep inside the first download rather than at startup.
-///
-/// A failure is not fatal, in keeping with the rest of this file's optional
-/// work: no engine means the assistant is the rule-based engine, which is the
-/// app's shipped behaviour, not a fault.
-Future<void> _registerInferenceEngines() async {
-  try {
-    await FlutterGemma.initialize(inferenceEngines: [LiteRtLmEngine()]);
-  } on Exception {
-    // Deliberately swallowed and not reported: there is no user-facing failure
-    // here. The assistant works without a model, and a crash SDK entry for
-    // "the optional LLM engine did not register" on every launch of a device
-    // that will never download one is noise, not a signal.
-  }
 }
 
 /// A missing .env must not be fatal: the app is offline-first and every module

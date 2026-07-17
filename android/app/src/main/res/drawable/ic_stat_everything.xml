@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status-bar icon. Reuses the adaptive-icon monochrome layer because it is
+  already white-on-transparent, which is all Android keeps of a small icon.
+  The negative inset cancels the adaptive safe-zone padding baked into that
+  layer, which would otherwise leave the mark floating tiny in the status bar.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_monochrome"
+    android:inset="-25%" />

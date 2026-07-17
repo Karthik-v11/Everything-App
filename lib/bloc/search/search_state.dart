@@ -14,10 +14,9 @@ class SearchResultGroup extends Equatable {
 
 /// [SearchState] holds everything the search screen renders.
 ///
-/// [results] is the flat, relevance-ranked list from the FTS query; [groups]
-/// derives the by-module sections from it without a second query. [hasQuery]
-/// tells "nothing typed yet" (show recent searches) apart from "typed, no match"
-/// (show an empty state).
+/// [results] is the flat, relevance-ranked FTS list; [groups] derives the
+/// by-module sections without a second query. [hasQuery] separates "nothing typed
+/// yet" (show recents) from "typed, no match" (show the empty state).
 class SearchState extends Equatable {
   const SearchState({
     this.query = '',
@@ -38,9 +37,8 @@ class SearchState extends Equatable {
 
   final bool hasQuery;
 
-  /// [groups] splits [results] into by-module sections, in the canonical module
-  /// order rather than in the order the ranking happened to interleave them, so
-  /// the sections do not reshuffle between keystrokes.
+  /// Sections in canonical module order, not ranking order, so they do not
+  /// reshuffle between keystrokes.
   List<SearchResultGroup> get groups {
     final byModule = <SearchModule, List<SearchResult>>{};
     for (final result in results) {
@@ -75,8 +73,7 @@ class SearchState extends Equatable {
         hasQuery: hasQuery ?? this.hasQuery,
       );
 
-  /// [fromJson] restores only the recent searches. The query, results and
-  /// loading flag are all transient.
+  /// Restores only the recent searches; everything else is transient.
   factory SearchState.fromJson(Map<String, dynamic> json) => SearchState(
         recentSearches: (json['HydratedRecentSearches'] as List?)
                 ?.map((entry) => entry.toString())

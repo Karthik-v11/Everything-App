@@ -29,25 +29,12 @@ import 'package:uuid/uuid.dart';
 part 'ai_event.dart';
 part 'ai_state.dart';
 
-/// [AiBloc] drives the AI assistant sheet (Requirement 16, Phase 10).
+/// [AiBloc] drives the AI assistant sheet (Requirement 16).
 ///
-/// It parses through [AiRepository] but **creates** through the feature
-/// repositories — [TasksRepository], [FinanceRepository], [DocumentsRepository],
-/// [BookmarksRepository], [ToBuyRepository], [WatchlistRepository],
-/// [ProjectsRepository] — because the AI layer deliberately does not persist (see
-/// [AiRepository]). So an item the assistant creates is saved by exactly the code
-/// the quick-add sheet uses, under the same validation, and reaches every screen
-/// through the same DAO stream. The bloc is the composition point where a parsed
-/// intent becomes a real entry.
-///
-/// Style A: it holds the live preview, the chosen mode, search results and an
-/// answer across the session, and clears them on [AiOpened].
-///
-/// Events:
-/// 1) [AiOpened] — the sheet opened; start a clean session.
-/// 2) [AiInputChanged] — the field changed; re-guess the mode and re-preview.
-/// 3) [AiModeSelected] — the user picked a mode, pinning it.
-/// 4) [AiSubmitted] — run the mode's action (create / search / answer).
+/// It parses through [AiRepository] but creates through the feature
+/// repositories, because the AI layer deliberately does not persist (see
+/// [AiRepository]). An assistant-created item is therefore saved by the same
+/// code and validation the quick-add sheets use.
 class AiBloc extends Bloc<AiEvent, AiState> {
   AiBloc({
     required this.repository,
@@ -77,22 +64,15 @@ class AiBloc extends Bloc<AiEvent, AiState> {
 
   static const Uuid _uuid = Uuid();
 
-  /// [_onOpened] starts a clean session.
-  ///
-  /// [AiState.confidence] is carried over rather than reset: it is the user's
-  /// setting (Requirement 25.3), not part of a session, and `const AiState()`
-  /// would quietly put it back to the shipped default every time the sheet was
-  /// opened — so the slider would appear to work until the sheet was closed and
-  /// reopened.
+  /// Starts a clean session. [AiState.confidence] is carried over rather than
+  /// reset: it is the user's setting (Requirement 25.3), not session state, and
+  /// `const AiState()` would restore the default on every open.
   FutureOr<void> _onOpened(AiOpened event, Emitter<AiState> emit) {
     emit(AiState(confidence: state.confidence));
   }
 
-  /// [_onConfigureAiEvent] applies the user's confidence threshold, pushed by
-  /// [SettingsBloc] (Requirement 25.3).
-  ///
-  /// It lands in state and is read by the *next* parse, which is what "subsequent
-  /// interactions" means — nothing already parsed is re-judged.
+  /// Applies the user's confidence threshold, pushed by [SettingsBloc]
+  /// (Requirement 25.3). Read by the next parse only; nothing is re-judged.
   FutureOr<void> _onConfigureAiEvent(
     ConfigureAiEvent event,
     Emitter<AiState> emit,

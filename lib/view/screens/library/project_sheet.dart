@@ -202,13 +202,17 @@ class _ColorRow extends StatelessWidget {
         children: [
           _Swatch(
             color: colors.primary,
+            label: 'Default colour',
             isSelected: selected == null,
             onTap: () => onSelected(null),
           ),
           const Gap(10),
-          for (final color in AppColors.chartPalette) ...[
+          for (final (index, color) in AppColors.chartPalette.indexed) ...[
             _Swatch(
               color: color,
+              // The palette is bare hex with no name map, so the swatches are
+              // announced by their position in the row.
+              label: 'Colour ${index + 1}',
               isSelected: selected == color.toARGB32(),
               onTap: () => onSelected(color.toARGB32()),
             ),
@@ -223,31 +227,38 @@ class _ColorRow extends StatelessWidget {
 class _Swatch extends StatelessWidget {
   const _Swatch({
     required this.color,
+    required this.label,
     required this.isSelected,
     required this.onTap,
   });
 
   final Color color;
+  final String label;
   final bool isSelected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: isSelected
-                ? context.colors.onSurface
-                : Colors.transparent,
-            width: 2,
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isSelected
+                  ? context.colors.onSurface
+                  : Colors.transparent,
+              width: 2,
+            ),
           ),
         ),
       ),

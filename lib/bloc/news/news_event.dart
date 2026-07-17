@@ -8,10 +8,8 @@ abstract class NewsEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// [FetchNewsEvent] refreshes one category's headlines.
-///
-/// [category] is null for "whichever tab is open", which is what launch and
-/// pull-to-refresh mean.
+/// [FetchNewsEvent] refreshes one category's headlines. A null [category] means
+/// whichever tab is open — what launch and pull-to-refresh want.
 class FetchNewsEvent extends NewsEvent {
   const FetchNewsEvent({this.category});
 
@@ -21,10 +19,8 @@ class FetchNewsEvent extends NewsEvent {
   List<Object?> get props => [category];
 }
 
-/// [SelectNewsCategoryEvent] switches tabs (Requirement 3.9).
-///
-/// It fetches only when that tab's cache is stale, so tabbing back and forth
-/// costs nothing.
+/// [SelectNewsCategoryEvent] switches tabs (Requirement 3.9). Fetches only when
+/// that tab's cache is stale, so tabbing back and forth costs nothing.
 class SelectNewsCategoryEvent extends NewsEvent {
   const SelectNewsCategoryEvent({required this.category});
 

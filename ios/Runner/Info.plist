@@ -78,6 +78,19 @@
 	     app when the app lock or the vault asks for a biometric unlock. -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>Everything uses Face ID to unlock the app and your vault.</string>
+	<!-- Dictation into the assistant (Requirement 16). Both keys are required and
+	     iOS kills the app on first use if either is missing: the mic and the
+	     recogniser are two separate consents there, unlike Android.
+
+	     The strings say what is done with the audio rather than naming the
+	     feature, because this text is the whole of what the user has to decide on.
+	     Speech recognition may be performed by Apple's servers rather than on the
+	     device — Apple's decision, not this app's — so it is not promised away
+	     here. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Everything uses the microphone so you can speak a task, an expense or a question to the assistant instead of typing it. No audio is saved.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Everything turns what you say to the assistant into text. Only that text is used, and it is never saved as audio.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

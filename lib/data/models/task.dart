@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:clock/clock.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:equatable/equatable.dart';
 import 'package:everything_app/core/utils/app_colors.dart';
@@ -81,6 +82,25 @@ class RecurrenceRule extends Equatable {
         'until': until?.toIso8601String(),
       };
 
+  /// [label] names the rule in one phrase: `Weekly`, `Every 2 weeks`,
+  /// `Daily until 25 Dec`. [interval] and [until] are spelled out because a rule
+  /// can now be typed as well as picked, and a label that showed only the
+  /// frequency would silently disagree with what the user wrote.
+  String get label {
+    final unit = switch (frequency) {
+      RecurrenceFrequency.daily => 'day',
+      RecurrenceFrequency.weekly => 'week',
+      RecurrenceFrequency.monthly => 'month',
+      RecurrenceFrequency.yearly => 'year',
+    };
+
+    final every = interval == 1
+        ? frequency.name.capitalized
+        : 'Every $interval ${unit}s';
+
+    return until == null ? every : '$every until ${until!.shortDate}';
+  }
+
   /// [nextOccurrenceAfter] is the due date of the occurrence following [from].
   ///
   /// Returns null once the series has passed [until].
@@ -155,8 +175,6 @@ class SubTask extends Equatable {
 }
 
 /// [Reminder] is a scheduled notification for a task (Requirement 5).
-///
-/// Phase 4 consumes these; Phase 3 only stores them.
 class Reminder extends Equatable {
   const Reminder({required this.id, required this.at});
 
@@ -224,7 +242,7 @@ class Task extends Equatable {
   bool get isOverdue =>
       status == TaskStatus.pending &&
       dueDate != null &&
-      dueDate!.isBefore(DateTime.now());
+      dueDate!.isBefore(clock.now());
 
   int get completedSubtaskCount =>
       subtasks.where((subtask) => subtask.isDone).length;

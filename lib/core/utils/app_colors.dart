@@ -41,15 +41,31 @@ class AppColors {
   static const Color purple = Color(0xFF8B5CF6);
   static const Color red = Color(0xFFE8453C);
   static const Color orange = Color(0xFFF5622D);
+  static const Color rose = Color(0xFFF43F5E);
+  static const Color pink = Color(0xFFEC4899);
+  static const Color indigo = Color(0xFF6366F1);
+  static const Color cyan = Color(0xFF06B6D4);
+  static const Color teal = Color(0xFF14B8A6);
+  static const Color lime = Color(0xFF84CC16);
+  static const Color slate = Color(0xFF64748B);
 
-  /// [accents] is the ordered palette shown in the theme picker.
+  /// [accents] is the palette shown in the theme picker, ordered around the
+  /// colour wheel so the grid reads as a spectrum rather than a bag of swatches.
+  /// [slate] closes it: it is the one neutral, for a UI that wants no hue at all.
   static const Map<String, Color> accents = <String, Color>{
-    'Amber': amber,
-    'Blue': blue,
-    'Green': green,
-    'Purple': purple,
     'Red': red,
+    'Rose': rose,
+    'Pink': pink,
     'Orange': orange,
+    'Amber': amber,
+    'Lime': lime,
+    'Green': green,
+    'Teal': teal,
+    'Cyan': cyan,
+    'Blue': blue,
+    'Indigo': indigo,
+    'Purple': purple,
+    'Slate': slate,
   };
 
   // Semantic.

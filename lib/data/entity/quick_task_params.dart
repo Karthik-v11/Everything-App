@@ -11,7 +11,10 @@ import 'package:everything_app/data/models/task.dart';
 ///   the app cannot create a category on the fly.
 /// * `@errands` — tag. Any word is accepted; tags are free-form.
 /// * `p1`…`p4` — priority, highest to lowest.
-/// * `every day`, `every 2 weeks`, `weekly` — recurrence.
+/// * `every day`, `every 2 weeks`, `weekly` — recurrence, optionally ended by
+///   `until 25 dec`.
+/// * `remind me 10 minutes before`, `remind me on time` — reminder, as a gap
+///   before the due date.
 /// * `today`, `tonight`, `tomorrow`, `friday`, `next week`, `in 3 days`,
 ///   `25 dec`, `12/03`, `5pm`, `at 17:30` — due date and time.
 ///
@@ -29,6 +32,7 @@ class QuickTaskParams {
     this.priority,
     this.categoryId,
     this.recurrence,
+    this.reminderOffset,
     List<String>? tags,
   }) : tags = tags ?? <String>[];
 
@@ -39,6 +43,11 @@ class QuickTaskParams {
   RecurrenceRule? recurrence;
   List<String> tags;
 
+  /// How long before the due date to be reminded. An offset rather than a moment
+  /// because that is what the sheet edits, and because the phrasing the parser
+  /// reads ("10 minutes before") is itself relative. Zero means on time.
+  Duration? reminderOffset;
+
   /// [hasTokens] is true when the input carried anything beyond the title, which
   /// is what tells the sheet it has something to show as chips.
   bool get hasTokens =>
@@ -46,6 +55,7 @@ class QuickTaskParams {
       priority != null ||
       categoryId != null ||
       recurrence != null ||
+      reminderOffset != null ||
       tags.isNotEmpty;
 
   /// [QuickTaskParams.parse] reads [raw] into its parts.
@@ -67,7 +77,9 @@ class QuickTaskParams {
     bool isFree(RegExpMatch match) => claimed
         .every((span) => match.end <= span.first || match.start >= span.last);
 
-    void claim(RegExpMatch match) => claimed.add([match.start, match.end]);
+    void claimRange(int start, int end) => claimed.add([start, end]);
+
+    void claim(RegExpMatch match) => claimRange(match.start, match.end);
 
     // The day and the time are parsed by separate patterns and combined at the
     // end: `tomorrow 5pm` is two tokens, and either may appear without the other.
@@ -102,11 +114,28 @@ class QuickTaskParams {
       break;
     }
 
+    // Read before the dates so that the gap in `remind me 2 days before` cannot
+    // also be read as a due date.
+    for (final match in _reminderPattern.allMatches(raw)) {
+      if (!isFree(match)) continue;
+
+      final offset = _reminderOffsetOf(match);
+      if (offset == null) continue;
+
+      params.reminderOffset = offset;
+      claim(match);
+      break;
+    }
+
     for (final match in _recurrencePattern.allMatches(raw)) {
       if (!isFree(match)) continue;
 
-      params.recurrence = _recurrenceOf(match);
-      claim(match);
+      // `until 25 dec` ends the series. It is claimed together with the rule so
+      // the date it names is not also read as the task's due date.
+      final until = _untilAfter(raw, match.end, reference);
+
+      params.recurrence = _recurrenceOf(match, until?.date);
+      claimRange(match.start, until?.end ?? match.end);
       break;
     }
 
@@ -211,6 +240,7 @@ class QuickTaskParams {
     TaskPriority? priority,
     String? categoryId,
     RecurrenceRule? recurrence,
+    Duration? reminderOffset,
     List<String>? tags,
   }) =>
       QuickTaskParams(
@@ -219,6 +249,7 @@ class QuickTaskParams {
         priority: priority ?? this.priority,
         categoryId: categoryId ?? this.categoryId,
         recurrence: recurrence ?? this.recurrence,
+        reminderOffset: reminderOffset ?? this.reminderOffset,
         tags: tags ?? this.tags,
       );
 
@@ -228,6 +259,7 @@ class QuickTaskParams {
         'priority': priority?.name,
         'categoryId': categoryId,
         'recurrence': recurrence?.toJson(),
+        'reminderOffset': reminderOffset?.inMinutes,
         'tags': tags,
       };
 
@@ -252,10 +284,31 @@ class QuickTaskParams {
     caseSensitive: false,
   );
 
+  /// `until 25 dec`, matched immediately after a recurrence rule. The date that
+  /// follows is read by the ordinary date patterns, so the series ends on the
+  /// same days the due date understands.
+  static final RegExp _untilPattern = RegExp(
+    r'\s+(?:until|till|til)\s+',
+    caseSensitive: false,
+  );
+
+  /// `remind me 10 minutes before`, `remind me on time`. The verb is required —
+  /// a bare `10 minutes before` is far more likely to be part of the task name.
+  static final RegExp _reminderPattern = RegExp(
+    r'(?<=^|\s)(?:remind(?:er)?|alert|notify|ping)(?:\s+me)?\s+'
+    r'(?:(\d+)\s*(m|mins?|minutes?|h|hrs?|hours?|d|days?|w|weeks?)'
+    r'\s+(?:before|early|earlier|ahead|prior|in\s+advance)'
+    r'|(?:at\s+)?(?:the\s+)?(on\s+time|at\s+the\s+time|when\s+due|at\s+due))'
+    r'(?=\s|$)',
+    caseSensitive: false,
+  );
+
   static final RegExp _relativeDayPattern = RegExp(
     r'(?<=^|\s)(today|tonight|tomorrow|tmrw|tmr)(?=\s|$)',
     caseSensitive: false,
   );
+
+  static final RegExp _whitespacePattern = RegExp(r'\s+');
 
   static final RegExp _inUnitsPattern = RegExp(
     r'(?<=^|\s)in\s+(\d+)\s+(day|week|month)s?(?=\s|$)',
@@ -358,7 +411,7 @@ class QuickTaskParams {
         _ => TaskPriority.low,
       };
 
-  static RecurrenceRule _recurrenceOf(RegExpMatch match) {
+  static RecurrenceRule _recurrenceOf(RegExpMatch match, DateTime? until) {
     final interval = int.tryParse(match.group(1) ?? '') ?? 1;
     final unit = (match.group(2) ?? match.group(3) ?? 'day').toLowerCase();
 
@@ -369,7 +422,63 @@ class QuickTaskParams {
       _ => RecurrenceFrequency.daily,
     };
 
-    return RecurrenceRule(frequency: frequency, interval: interval);
+    // An interval of zero would make the series never advance; treat it as the
+    // plain rule rather than dropping the recurrence the user clearly asked for.
+    return RecurrenceRule(
+      frequency: frequency,
+      interval: interval < 1 ? 1 : interval,
+      until: until,
+    );
+  }
+
+  /// [_untilAfter] reads an `until <date>` clause sitting at [start].
+  ///
+  /// Returns the day the series ends on and the offset the clause runs to, so the
+  /// caller can claim the whole phrase. Null when no clause is there, or when the
+  /// words after `until` are not a date the parser knows — in which case the rule
+  /// simply has no end, and the words stay in the title.
+  static ({DateTime date, int end})? _untilAfter(
+    String raw,
+    int start,
+    DateTime reference,
+  ) {
+    final keyword = _untilPattern.matchAsPrefix(raw, start);
+    if (keyword == null) return null;
+
+    for (final pattern in _datePatterns) {
+      final match = pattern.matchAsPrefix(raw, keyword.end);
+      if (match == null) continue;
+
+      final day = _dayOf(pattern, match as RegExpMatch, reference);
+      if (day == null) continue;
+
+      // The end is a day, not a moment: the default hour would cut the last
+      // occurrence off if it were due later than 09:00.
+      return (
+        date: DateTime(day.year, day.month, day.day, 23, 59),
+        end: match.end,
+      );
+    }
+
+    return null;
+  }
+
+  /// [_reminderOffsetOf] turns one reminder match into the gap before the due
+  /// date. Zero for the `on time` wording. Null when the unit is unreadable, so
+  /// the phrase stays in the title rather than becoming a wrong reminder.
+  static Duration? _reminderOffsetOf(RegExpMatch match) {
+    if (match.group(3) != null) return Duration.zero;
+
+    final count = int.tryParse(match.group(1) ?? '');
+    final unit = match.group(2)?.toLowerCase();
+    if (count == null || unit == null) return null;
+
+    if (unit.startsWith('mi') || unit == 'm') return Duration(minutes: count);
+    if (unit.startsWith('h')) return Duration(hours: count);
+    if (unit.startsWith('d')) return Duration(days: count);
+    if (unit.startsWith('w')) return Duration(days: 7 * count);
+
+    return null;
   }
 
   /// [_dayOf] turns one date match into a day at [_defaultHour]. Null when the
@@ -533,6 +642,6 @@ class QuickTaskParams {
     }
     if (cursor < raw.length) buffer.write(raw.substring(cursor));
 
-    return buffer.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return buffer.toString().replaceAll(_whitespacePattern, ' ').trim();
   }
 }

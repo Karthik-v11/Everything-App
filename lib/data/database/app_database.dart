@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -38,25 +39,20 @@ part 'app_database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
-  /// [AppDatabase.encrypted] describes the on-device database keyed with
-  /// [encryptionKey].
+  /// Describes — does not open — the on-device database keyed with
+  /// [encryptionKey]. `driftDatabase` returns a delayed connection, so sqlite3 is
+  /// opened, keyed by [_applyKey] and verified by [_verifyKeyed] on the first
+  /// query, in drift's background isolate: off the path to the first frame, but
+  /// still before any statement can see a row. A wrong key or a plain-SQLite
+  /// binary fails on the first read rather than corrupting data quietly.
   ///
-  /// It does not open anything. `driftDatabase` returns a delayed connection, so
-  /// sqlite3 is opened, keyed by [_applyKey] and verified by [_verifyKeyed] on
-  /// the first query, in the background isolate drift runs its connection on.
-  /// The verification is therefore off the UI isolate and off the path to the
-  /// first frame — but it still runs before any statement this app issues can
-  /// see a row, which is what it is for. A wrong key or a plain-SQLite binary
-  /// still fails on the first read rather than corrupting data quietly.
+  /// [databaseDirectory] and [temporaryDirectory] are already-resolved
+  /// `path_provider` paths, passed in because `drift_flutter` would otherwise
+  /// resolve both itself, adding two platform round-trips to the first query.
+  /// Optional so a caller with no bootstrap (a test) gets the default lookup.
   ///
-  /// [databaseDirectory] and [temporaryDirectory] are the already-resolved
-  /// `path_provider` paths. They are passed in because `drift_flutter` would
-  /// otherwise resolve both itself, adding two platform round-trips to the first
-  /// query. They are optional so that a caller with no bootstrap (a test) still
-  /// gets the default lookup.
-  ///
-  /// [_discardIfUnreadable] runs first, so a file this key cannot open is
-  /// replaced rather than left to fail every statement the app issues.
+  /// [_discardIfUnreadable] runs first, so a file this key cannot open is replaced
+  /// rather than left to fail every statement the app issues.
   factory AppDatabase.encrypted({
     required String encryptionKey,
     String? databaseDirectory,
@@ -106,142 +102,169 @@ class AppDatabase extends _$AppDatabase {
           // Drift does not enable foreign keys by default, and SQLite ignores
           // every FK constraint silently until it is switched on per connection.
           await customStatement('PRAGMA foreign_keys = ON');
-          await _createIndexes();
-          await _createSearchIndex();
+
+          // All index and trigger creation is batched into a single round-trip
+          // to drift's background isolate. Running them sequentially cost 32
+          // individual marshalling round-trips, which was the single largest
+          // cold-start bottleneck on the path to the first row of data.
+          await batch((b) {
+            for (final statement in _indexStatements) {
+              b.customStatement(statement);
+            }
+          });
+          await _createSearchIndexBatched();
         },
       );
 
-  /// [_createIndexes] backs the columns the streaming queries filter and sort on.
+  /// Indexes backing the columns the streaming queries filter and sort on. Every
+  /// `watch*` query re-runs on any write to its table and, unindexed, does a full
+  /// scan plus an in-SQLite sort each time — the stutter on a long list.
   ///
-  /// Every `watch*` query re-runs on any write to its table and, without an
-  /// index, does a full table scan plus an in-SQLite sort each time — the cost
-  /// that shows up as a stutter when a list is long. These indexes turn those
-  /// scans into lookups on the exact columns the DAOs use in `WHERE`/`ORDER BY`
-  /// (see `tasks_dao`, `finance_dao`, `projects_dao`, `bookmarks_dao`,
-  /// `vault_dao`).
-  ///
-  /// They are created here rather than through a `schemaVersion` bump on purpose:
-  /// an index is derived data, not schema the app's models depend on, so
-  /// `CREATE INDEX IF NOT EXISTS` on every open is idempotent, keeps the single
-  /// schema version the rest of the code assumes, and covers a database written
-  /// by an earlier build without a migration step. SQLite skips an index that
-  /// already exists after a cheap catalogue check, so the repeated call costs
-  /// nothing after the first launch.
-  Future<void> _createIndexes() async {
-    const statements = [
-      // Tasks: the by-date list and the project sub-view.
-      'CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks (due_date)',
-      'CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks (project_id)',
-      // Finance: the transaction list orders by date; balances group by account.
-      'CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (date)',
-      'CREATE INDEX IF NOT EXISTS idx_transactions_account_id '
-          'ON transactions (account_id)',
-      // Budgets are looked up by the month they apply to.
-      'CREATE INDEX IF NOT EXISTS idx_budgets_month_year ON budgets (month, year)',
-      // Folders are split into the bookmark and vault namespaces by scope.
-      'CREATE INDEX IF NOT EXISTS idx_folders_scope ON folders (scope)',
-      // Documents belonging to a project; attachments' polymorphic owner.
-      'CREATE INDEX IF NOT EXISTS idx_documents_project_id '
-          'ON documents (project_id)',
-      'CREATE INDEX IF NOT EXISTS idx_attachments_owner '
-          'ON attachments (owner_type, owner_id)',
-    ];
-    for (final statement in statements) {
-      await customStatement(statement);
-    }
-  }
+  /// Created here rather than via a `schemaVersion` bump: an index is derived
+  /// data, not schema the models depend on, so `IF NOT EXISTS` on every open is
+  /// idempotent, keeps the single schema version, and covers a database written by
+  /// an earlier build with no migration step. SQLite skips an existing index after
+  /// a cheap catalogue check.
+  static const List<String> _indexStatements = [
+    // Tasks: `watchForDate` filters on due_date alone.
+    'CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks (due_date)',
+    // `TasksDao.watchAll` sorts on the *expression* `(due_date IS NULL)` first,
+    // which no plain column index can satisfy — it scanned and built a temp
+    // B-tree on every write to `tasks`. These two match the ORDER BY term for
+    // term, including the leading expression, so the scan walks the index in
+    // order and the sort disappears. Verified with EXPLAIN QUERY PLAN.
+    'CREATE INDEX IF NOT EXISTS idx_tasks_order '
+        'ON tasks ((due_date IS NULL), due_date ASC, created_at DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_tasks_project_order '
+        'ON tasks (project_id, (due_date IS NULL), due_date ASC, created_at DESC)',
+    // Subsumed by idx_tasks_project_order, which leads with the same column.
+    'DROP INDEX IF EXISTS idx_tasks_project_id',
+    // Finance: the transaction list orders by date then created_at. A date-only
+    // index still left the tiebreak to a temp B-tree; the composite covers both
+    // terms and makes the date-only index redundant.
+    'CREATE INDEX IF NOT EXISTS idx_transactions_order '
+        'ON transactions (date DESC, created_at DESC)',
+    'DROP INDEX IF EXISTS idx_transactions_date',
+    'CREATE INDEX IF NOT EXISTS idx_transactions_account_id '
+        'ON transactions (account_id)',
+    // Budgets are looked up by the month they apply to.
+    'CREATE INDEX IF NOT EXISTS idx_budgets_month_year ON budgets (month, year)',
+    // Folders are split into the bookmark and vault namespaces by scope, then
+    // listed by name; the composite serves both clauses of that one query and
+    // makes the scope-only index it replaces redundant.
+    'CREATE INDEX IF NOT EXISTS idx_folders_scope_name ON folders (scope, name)',
+    'DROP INDEX IF EXISTS idx_folders_scope',
+    // Documents belonging to a project; attachments' polymorphic owner.
+    'CREATE INDEX IF NOT EXISTS idx_documents_project_id '
+        'ON documents (project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_attachments_owner '
+        'ON attachments (owner_type, owner_id)',
+    // The remaining list orders. Each backs an `ORDER BY` on a whole-table watch,
+    // which re-runs on every write to its table.
+    'CREATE INDEX IF NOT EXISTS idx_bookmarks_saved_at ON bookmarks (saved_at)',
+    'CREATE INDEX IF NOT EXISTS idx_documents_updated_at '
+        'ON documents (updated_at)',
+    'CREATE INDEX IF NOT EXISTS idx_to_buy_items_created_at '
+        'ON to_buy_items (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_watchlist_created_at '
+        'ON watchlist (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_projects_created_at '
+        'ON projects (created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_vault_items_name ON vault_items (name)',
+    'CREATE INDEX IF NOT EXISTS idx_accounts_name ON accounts (name)',
+    // Reassigning a folder's contents when the folder is deleted.
+    'CREATE INDEX IF NOT EXISTS idx_bookmarks_folder_id '
+        'ON bookmarks (folder_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vault_items_folder_id '
+        'ON vault_items (folder_id)',
+  ];
 
-  /// [_createSearchIndex] builds the FTS5 index behind Global Search (Phase 9,
-  /// Requirements 17, 24.2).
+  /// Builds the FTS5 index behind Global Search (Requirements 17, 24.2) in a
+  /// single batched round-trip.
   ///
-  /// Eight `LIKE '%q%'` scans across eight tables cannot hold the < 300 ms bar
-  /// over 10,000 items (Requirement 24.2); an FTS5 virtual table indexed by
-  /// tokens can. `search_index` is a **standalone** FTS5 table — [item_id] and
-  /// [module] are stored `UNINDEXED` so a hit maps back to its row and its
-  /// module, and only [title] and [body] are tokenised.
+  /// Eight `LIKE '%q%'` scans cannot hold the <300 ms bar over 10,000 items
+  /// (Requirement 24.2); a token-indexed FTS5 virtual table can. `search_index` is
+  /// standalone: `item_id` and `module` are `UNINDEXED` so a hit maps back to its
+  /// row, and only `title` and `body` are tokenised.
   ///
-  /// It is kept in sync by triggers on each source table rather than rewritten on
-  /// read: every write to a task, a transaction, a bookmark and so on reconciles
-  /// its one FTS row, so search is always current without a rebuild step. The
-  /// per-write cost is a delete-by-scan of the FTS content on update/delete, which
-  /// is a few milliseconds against a single-row write and never on the read path
-  /// the requirement bounds.
+  /// Triggers on each source table keep it in sync per write, so search is always
+  /// current with no rebuild step and nothing on the read path the requirement
+  /// bounds.
   ///
-  /// **The vault contributes its [VaultItemsTable.name] and nothing else**
-  /// (Requirement 9.5): its `encryptedPayload` is never tokenised, so a vault
-  /// search matches on the item's title alone and its contents never enter an
-  /// index.
+  /// The vault contributes its [VaultItemsTable.name] and nothing else
+  /// (Requirement 9.5): `encryptedPayload` is never tokenised, so its contents
+  /// never enter an index.
   ///
-  /// Like [_createIndexes], this runs on every open behind `IF NOT EXISTS` rather
-  /// than through a `schemaVersion` bump: the index is derived data, not schema
-  /// the models depend on. The one-time [_backfillSearchIndex] seeds it from rows
-  /// written by builds that predate it — the triggers only fire on future writes.
-  Future<void> _createSearchIndex() async {
+  /// Runs on every open behind `IF NOT EXISTS` rather than a `schemaVersion` bump
+  /// — derived data, not schema. [_backfillSearchIndex] seeds it once from rows
+  /// predating it; the triggers only fire on future writes.
+  Future<void> _createSearchIndexBatched() async {
     final existed = await customSelect(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = "
       "'search_index'",
     ).get();
 
-    await customStatement(
-      'CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5('
-      'item_id UNINDEXED, module UNINDEXED, title, body, '
-      "tokenize = 'unicode61 remove_diacritics 2')",
-    );
+    // FTS table + 8 sources × 3 triggers in one batched round-trip.
+    await batch((b) {
+      b.customStatement(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5('
+        'item_id UNINDEXED, module UNINDEXED, title, body, '
+        "tokenize = 'unicode61 remove_diacritics 2')",
+      );
 
-    for (final source in _searchSources) {
-      // AFTER INSERT: add the new row's searchable text.
-      await customStatement(
-        'CREATE TRIGGER IF NOT EXISTS search_ai_${source.table} '
-        'AFTER INSERT ON ${source.table} BEGIN '
-        'INSERT INTO search_index(item_id, module, title, body) VALUES '
-        "(new.id, '${source.module}', ${source.titleExpr('new.')}, "
-        '${source.bodyExpr('new.')}); END',
-      );
-      // AFTER UPDATE: drop the old FTS row and re-add. An in-place update is not
-      // possible without the FTS rowid, which the string primary key is not.
-      await customStatement(
-        'CREATE TRIGGER IF NOT EXISTS search_au_${source.table} '
-        'AFTER UPDATE ON ${source.table} BEGIN '
-        "DELETE FROM search_index WHERE module = '${source.module}' "
-        'AND item_id = old.id; '
-        'INSERT INTO search_index(item_id, module, title, body) VALUES '
-        "(new.id, '${source.module}', ${source.titleExpr('new.')}, "
-        '${source.bodyExpr('new.')}); END',
-      );
-      // AFTER DELETE: withdraw the row's text so a deleted item stops matching.
-      await customStatement(
-        'CREATE TRIGGER IF NOT EXISTS search_ad_${source.table} '
-        'AFTER DELETE ON ${source.table} BEGIN '
-        "DELETE FROM search_index WHERE module = '${source.module}' "
-        'AND item_id = old.id; END',
-      );
-    }
+      for (final source in _searchSources) {
+        // AFTER INSERT: add the new row's searchable text.
+        b.customStatement(
+          'CREATE TRIGGER IF NOT EXISTS search_ai_${source.table} '
+          'AFTER INSERT ON ${source.table} BEGIN '
+          'INSERT INTO search_index(item_id, module, title, body) VALUES '
+          "(new.id, '${source.module}', ${source.titleExpr('new.')}, "
+          '${source.bodyExpr('new.')}); END',
+        );
+        // AFTER UPDATE: drop the old FTS row and re-add. An in-place update is
+        // not possible without the FTS rowid, which the string primary key is
+        // not.
+        b.customStatement(
+          'CREATE TRIGGER IF NOT EXISTS search_au_${source.table} '
+          'AFTER UPDATE ON ${source.table} BEGIN '
+          "DELETE FROM search_index WHERE module = '${source.module}' "
+          'AND item_id = old.id; '
+          'INSERT INTO search_index(item_id, module, title, body) VALUES '
+          "(new.id, '${source.module}', ${source.titleExpr('new.')}, "
+          '${source.bodyExpr('new.')}); END',
+        );
+        // AFTER DELETE: withdraw the row's text so a deleted item stops
+        // matching.
+        b.customStatement(
+          'CREATE TRIGGER IF NOT EXISTS search_ad_${source.table} '
+          'AFTER DELETE ON ${source.table} BEGIN '
+          "DELETE FROM search_index WHERE module = '${source.module}' "
+          'AND item_id = old.id; END',
+        );
+      }
+    });
 
     if (existed.isEmpty) await _backfillSearchIndex();
   }
 
-  /// [_backfillSearchIndex] seeds the FTS index from existing rows, once.
-  ///
-  /// Runs only the first time [search_index] is created — the triggers cover
-  /// every write after that. Without it, a database that already holds a user's
-  /// tasks and transactions from an earlier build would search as though empty
-  /// until each row happened to be edited.
+  /// Seeds the FTS index from existing rows, only the first time `search_index` is
+  /// created — the triggers cover every write after that. Without it, a database
+  /// from an earlier build would search as though empty until each row was edited.
   Future<void> _backfillSearchIndex() async {
-    for (final source in _searchSources) {
-      await customStatement(
-        'INSERT INTO search_index(item_id, module, title, body) '
-        "SELECT id, '${source.module}', ${source.titleExpr('')}, "
-        '${source.bodyExpr('')} FROM ${source.table}',
-      );
-    }
+    await batch((b) {
+      for (final source in _searchSources) {
+        b.customStatement(
+          'INSERT INTO search_index(item_id, module, title, body) '
+          "SELECT id, '${source.module}', ${source.titleExpr('')}, "
+          '${source.bodyExpr('')} FROM ${source.table}',
+        );
+      }
+    });
   }
 
-  /// [_searchSources] is the eight modules Global Search spans (Requirement 17.1)
-  /// and the columns each contributes to the index.
-  ///
-  /// [body] is empty for the two modules with nothing to index past their title —
-  /// the watchlist, and the vault, whose contents are encrypted and must never be
-  /// indexed (Requirement 9.5).
+  /// The eight modules Global Search spans (Requirement 17.1) and the columns each
+  /// contributes. [body] is empty for the watchlist, and for the vault, whose
+  /// contents are encrypted and must never be indexed (Requirement 9.5).
   static const List<_SearchSource> _searchSources = [
     _SearchSource(module: 'tasks', table: 'tasks', body: ['notes']),
     _SearchSource(
@@ -271,56 +294,44 @@ class AppDatabase extends _$AppDatabase {
     ),
   ];
 
-  /// [_sqliteNotADb] is SQLITE_NOTADB, what SQLCipher returns when page 1 fails
-  /// to decrypt: the file was written with a different key, or with none.
+  /// SQLITE_NOTADB, what SQLCipher returns when page 1 fails to decrypt: the file
+  /// was written with a different key, or with none.
   static const int _sqliteNotADb = 26;
 
-  /// [_fileIn] is the path `drift_flutter` will open for [kDatabaseName].
-  ///
-  /// It appends the same `.sqlite` suffix `driftDatabase` does, so the probe and
-  /// drift agree on which file is being talked about. A mismatch here would leave
-  /// the real database unchecked and delete nothing.
+  /// The path `drift_flutter` will open for [kDatabaseName]. Appends the same
+  /// `.sqlite` suffix `driftDatabase` does — a mismatch would leave the real
+  /// database unchecked and delete nothing.
   static String _fileIn(String directory) => '$directory/$kDatabaseName.sqlite';
 
-  /// [_discardIfUnreadable] deletes a database [encryptionKey] cannot open.
+  /// Deletes a database [encryptionKey] cannot open.
   ///
   /// A key and a file drift apart when the file predates encryption, or when the
-  /// keystore entry is lost while the file survives — a restored backup, a reset
-  /// keystore. [SecurityService.databaseKey] then mints a *fresh* key, and every
-  /// statement the app issues dies at `PRAGMA key` on a file that key never
-  /// wrote. The data in it is gone either way: it cannot be decrypted without the
-  /// original key, and nothing in the app still holds one. Replacing the file at
-  /// least leaves a working app rather than one where every write reports a
-  /// module-specific failure that has nothing to do with the module.
+  /// keystore entry is lost while the file survives (a restored backup, a reset
+  /// keystore). [SecurityService.databaseKey] then mints a fresh key and every
+  /// statement dies at `PRAGMA key`. The data is unrecoverable either way, so
+  /// replacing the file at least leaves a working app.
   ///
-  /// **This deletes user data, so it is deliberately narrow.** Only
-  /// [_sqliteNotADb] — page 1 provably did not decrypt — is treated as a
-  /// mismatch. Every other failure rethrows untouched: a locked, busy, or
-  /// permission-denied file is a transient problem whose data is still intact and
-  /// still readable once the cause clears, and wiping it would turn a bad launch
-  /// into permanent loss. A missing file is a first launch and needs no probe.
+  /// This deletes user data, so it is deliberately narrow: only [_sqliteNotADb] —
+  /// page 1 provably did not decrypt — counts as a mismatch. Every other failure
+  /// rethrows: a locked, busy or permission-denied file is transient, its data
+  /// intact, and wiping it would turn a bad launch into permanent loss. A missing
+  /// file is a first launch and needs no probe.
+  ///
+  /// The probe runs on a spawned isolate. It opens and keys sqlite3 over FFI,
+  /// which is synchronous and blocks whichever isolate it lands on; run inline it
+  /// would land on the UI isolate, because `DatabaseConnection.delayed` schedules
+  /// its future on the calling isolate — i.e. on top of the first frames, not
+  /// inside drift's background isolate the way the keyed connection itself is.
   static Future<void> _discardIfUnreadable(
     String path,
     String encryptionKey,
   ) async {
-    final file = File(path);
-    if (!file.existsSync()) return;
+    if (!File(path).existsSync()) return;
 
-    // Opened here rather than in drift's `setup` because the recovery is a file
-    // operation: by the time `setup` runs, drift holds an open handle on the very
-    // file that would have to be replaced. This costs one page-1 read per launch,
-    // off the path to the first frame but on the UI isolate.
-    final database = sqlite3.open(path);
-    try {
-      _applyKey(database, encryptionKey);
-      return;
-    } on SqliteException catch (error) {
-      if (error.resultCode != _sqliteNotADb) rethrow;
-    } finally {
-      database.close();
-    }
+    final isReadable = await Isolate.run(() => _probeKey(path, encryptionKey));
+    if (isReadable) return;
 
-    await file.delete();
+    await File(path).delete();
 
     // The journal and shared-memory sidecars describe the file just deleted.
     // Leaving them would hand the fresh database another database's journal.
@@ -330,23 +341,56 @@ class AppDatabase extends _$AppDatabase {
     }
   }
 
-  /// [_applyKey] keys the connection and proves the result is really encrypted.
+  /// Whether [encryptionKey] can actually decrypt the database at [path].
   ///
-  /// `PRAGMA key` must be the very first statement on the connection — any read
-  /// before it locks the database into plaintext mode for that handle.
+  /// Runs on a spawned isolate (see [_discardIfUnreadable]), so it must be a
+  /// top-level-callable static taking only sendable arguments, and must return a
+  /// sendable result rather than an open handle.
+  ///
+  /// Opened here rather than in drift's `setup`: by the time `setup` runs, drift
+  /// holds an open handle on the very file that would have to be replaced.
+  static bool _probeKey(String path, String encryptionKey) {
+    final database = sqlite3.open(path);
+    try {
+      _applyKey(database, encryptionKey);
+      return true;
+    } on SqliteException catch (error) {
+      // Narrow by design: only a provable page-1 decryption failure means the key
+      // and the file have diverged. A locked, busy or permission-denied file is
+      // transient and its data intact, so it rethrows rather than being wiped.
+      if (error.resultCode != _sqliteNotADb) rethrow;
+      return false;
+    } finally {
+      database.close();
+    }
+  }
+
+  /// Keys the connection and proves the result is really encrypted. `PRAGMA key`
+  /// must be the first statement on the connection — any read before it locks the
+  /// handle into plaintext mode.
+  ///
+  /// The key is passed in SQLCipher's raw form (`x'<64 hex>'`), not as a
+  /// passphrase. Given a passphrase, SQLCipher stretches it with 256,000 rounds of
+  /// PBKDF2-HMAC-SHA512 — 150–400 ms on a midrange device, paid on every open.
+  /// [SecurityService.databaseKey] already mints the key as 32 bytes of CSPRNG
+  /// output, so there is no low-entropy passphrase to stretch and the KDF buys
+  /// nothing. The raw form skips it and uses the 32 bytes as the cipher key
+  /// directly, which is what the stretching was only ever approximating.
   static void _applyKey(CommonDatabase database, String encryptionKey) {
-    // The key is interpolated into SQL, so a `'` in it would break out of the
-    // literal. Keys are hex, but the escaping holds regardless.
-    final escaped = encryptionKey.replaceAll("'", "''");
-    database.execute("PRAGMA key = '$escaped';");
+    // Raw-key syntax takes exactly 64 hex characters. Anything else would be
+    // parsed as a passphrase instead — silently reinstating the KDF and, worse,
+    // deriving a different key than the one this file was written with.
+    assert(
+      RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(encryptionKey),
+      'The database key must be 64 hex characters for SQLCipher raw-key mode.',
+    );
+    database.execute('PRAGMA key = "x\'$encryptionKey\'";');
     _verifyKeyed(database);
   }
 
-  /// [_verifyKeyed] throws if SQLCipher is not present in the built binary.
-  ///
-  /// Plain SQLite ignores an unknown `PRAGMA key` instead of erroring, so without
-  /// this check a mis-built binary would run correctly while writing an entirely
-  /// unencrypted database. The pubspec `hooks` block is what selects SQLCipher.
+  /// Throws if SQLCipher is absent from the built binary. Plain SQLite ignores an
+  /// unknown `PRAGMA key` instead of erroring, so without this check a mis-built
+  /// binary would run correctly while writing an entirely unencrypted database.
   static void _verifyKeyed(CommonDatabase database) {
     final cipher = database.select('PRAGMA cipher_version;');
     if (cipher.isEmpty || '${cipher.first.values.first}'.trim().isEmpty) {
@@ -363,13 +407,11 @@ class AppDatabase extends _$AppDatabase {
   }
 }
 
-/// [_SearchSource] describes one module's contribution to the FTS index
-/// (see [AppDatabase._searchSources]).
+/// One module's contribution to the FTS index (see [AppDatabase._searchSources]).
 ///
 /// [titleExpr] and [bodyExpr] render the same columns in two contexts: prefixed
-/// with `new.` inside a trigger, and bare inside the one-time backfill `SELECT`.
-/// Every column is `coalesce`d to `''` so a null note or description never nulls
-/// the whole indexed value.
+/// with `new.` inside a trigger, and bare inside the backfill `SELECT`. Every
+/// column is `coalesce`d to `''` so a null note never nulls the whole value.
 class _SearchSource {
   const _SearchSource({
     required this.module,

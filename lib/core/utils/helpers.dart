@@ -1,10 +1,35 @@
 import 'package:intl/intl.dart';
 
+/// [Season] is the time of year the daily briefing is told about.
+///
+/// The app is India-first — news defaults to `country: in` and the weather to
+/// Bengaluru — so the four-season Western calendar is simply wrong here: the
+/// Indian Meteorological Department's seasons are what a reader in Bengaluru
+/// recognises, and a briefing that calls August "summer" is a briefing written
+/// for somewhere else.
+enum Season {
+  summer,
+  monsoon,
+  postMonsoon,
+  winter;
+
+  /// [label] is the season in the words the briefing prompt uses.
+  String get label => switch (this) {
+        Season.summer => 'summer',
+        Season.monsoon => 'monsoon',
+        Season.postMonsoon => 'post-monsoon',
+        Season.winter => 'winter',
+      };
+}
+
 /// Pure, stateless helper functions.
 ///
 /// DO NOT MODIFY.
 class Helpers {
   const Helpers._();
+
+  /// Built once: [parseMoney] runs on every keystroke of an amount field.
+  static final RegExp _nonNumeric = RegExp(r'[^0-9.\-]');
 
   /// [greeting] is the Dashboard salutation — "Good Morning" / "Good Afternoon"
   /// / "Good Evening" based on [at] (defaults to now).
@@ -14,6 +39,14 @@ class Helpers {
     if (hour < 17) return 'Good Afternoon';
     return 'Good Evening';
   }
+
+  /// [seasonOf] maps a date onto its [Season] by month (IMD boundaries).
+  static Season seasonOf(DateTime date) => switch (date.month) {
+        3 || 4 || 5 => Season.summer,
+        6 || 7 || 8 || 9 => Season.monsoon,
+        10 || 11 => Season.postMonsoon,
+        _ => Season.winter,
+      };
 
   // ── Money ──────────────────────────────────────────────────────────────────
   //
@@ -50,7 +83,7 @@ class Helpers {
   /// [parseMoney] reads a user-typed amount into minor units, tolerating
   /// grouping separators and a leading symbol. Returns null when unparseable.
   static int? parseMoney(String input) {
-    final cleaned = input.replaceAll(RegExp(r'[^0-9.\-]'), '');
+    final cleaned = input.replaceAll(_nonNumeric, '');
     final value = double.tryParse(cleaned);
     return value == null ? null : toMinorUnits(value);
   }

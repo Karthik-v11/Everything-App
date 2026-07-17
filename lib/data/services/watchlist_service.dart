@@ -6,12 +6,10 @@ import 'package:uuid/uuid.dart';
 
 /// [WatchlistService] is the Watchlist's persistence layer (Requirement 8).
 ///
-/// Every write here goes through [WatchlistItem.withProgress] or
-/// [WatchlistItem.withStatus] rather than assembling a row by hand. Those two
-/// methods are where Property 16 lives — progress never exceeds a defined total,
-/// and Completed always carries a date — and routing every write through them is
-/// what makes the property hold for writes this service has not been written for
-/// yet.
+/// Every write goes through [WatchlistItem.withProgress] or
+/// [WatchlistItem.withStatus] rather than assembling a row by hand: those two
+/// are where Property 16 lives — progress never exceeds a defined total, and
+/// Completed always carries a date.
 class WatchlistService {
   WatchlistService({required this.dao});
 
@@ -27,8 +25,8 @@ class WatchlistService {
       final invalid = _validate(item);
       if (invalid != null) return invalid;
 
-      // Through withStatus, so an entry added as already-Completed is stamped with
-      // a completion date rather than being the one row in the table that has none
+      // Through withStatus, so an entry added as already-Completed is stamped
+      // with a completion date rather than being the one row without one
       // (Requirement 8.3).
       final prepared = item
           .copyWith(
@@ -49,11 +47,9 @@ class WatchlistService {
     }
   }
 
-  /// [update] saves an edited entry.
-  ///
-  /// It re-applies the status and the progress through the model rather than
-  /// trusting what the form built: the user may have lowered the total below the
-  /// progress they had already made, and 14/12 must not reach the database
+  /// [update] saves an edited entry, re-applying status and progress through the
+  /// model rather than trusting the form: the user may have lowered the total
+  /// below the progress already made, and 14/12 must not reach the database
   /// (Property 16).
   Future<JsonResponse> update(WatchlistItem item) async {
     try {
@@ -78,9 +74,9 @@ class WatchlistService {
 
   /// [setProgress] records how far the user has got (Requirement 8.2).
   ///
-  /// Clamped to the total, and reaching the total completes the entry with a date —
-  /// both in [WatchlistItem.withProgress], so the stepper on the card and the field
-  /// in the sheet cannot disagree about what finishing something means.
+  /// Clamped to the total, and reaching it completes the entry with a date — both
+  /// in [WatchlistItem.withProgress], so the card's stepper and the sheet's field
+  /// cannot disagree about what finishing means.
   Future<JsonResponse> setProgress({
     required WatchlistItem item,
     required int progress,

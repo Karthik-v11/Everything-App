@@ -77,12 +77,10 @@ enum WatchStatus {
 
 /// [WatchlistItem] is one thing being tracked (Requirement 8).
 ///
-/// The two invariants of Property 16 are enforced **in the model**, by
-/// [withProgress] and [withStatus], rather than at the call sites that happen to
-/// update it today. Progress cannot exceed a defined total, and an entry that is
-/// Completed always carries a [completedAt] — whichever route it arrives at
-/// Completed by, including the one where finishing the last episode completes it
-/// on the user's behalf.
+/// Property 16's two invariants are enforced in the model, by [withProgress] and
+/// [withStatus], not at the call sites: progress cannot exceed a defined total,
+/// and a Completed entry always carries a [completedAt] — by whichever route it
+/// reached Completed.
 class WatchlistItem extends Equatable {
   const WatchlistItem({
     required this.id,
@@ -146,13 +144,11 @@ class WatchlistItem extends Equatable {
   /// [withProgress] moves progress to [value], holding both halves of Property 16.
   ///
   /// Progress is clamped to the total when one is defined, so no sequence of
-  /// updates — a typo, a fat-fingered stepper, an AI parse in a later phase — can
-  /// store an entry as being on episode 14 of 12.
+  /// updates can store an entry as being on episode 14 of 12.
   ///
-  /// Reaching the total **completes the entry**, which is the only way the user
-  /// finishing the last episode and the user tapping Completed can be guaranteed to
-  /// leave the same row behind. That path goes through [withStatus], so it stamps
-  /// [completedAt] like every other one.
+  /// Reaching the total completes the entry, so finishing the last episode and
+  /// tapping Completed leave the same row behind. That path goes through
+  /// [withStatus], so it stamps [completedAt] like every other one.
   WatchlistItem withProgress(int value) {
     final target = total;
     final clamped = target == null

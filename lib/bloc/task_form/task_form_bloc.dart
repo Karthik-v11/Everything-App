@@ -10,15 +10,11 @@ part 'task_form_state.dart';
 
 /// [TaskFormBloc] saves a new or edited task (Requirement 4.4).
 ///
-/// Style B: one focused action with a clear start and end. It holds no data
-/// between events; the saved task goes to the database and reaches the UI through
-/// [TasksBloc]'s stream.
+/// Holds no data between events: the saved task goes to the database and reaches
+/// the UI through [TasksBloc]'s stream.
 ///
-/// It is separate from [TasksBloc] so that a validation failure in the form does
-/// not put an error on the state the task list renders from.
-///
-/// Events:
-/// 1) [SubmitTaskEvent] — create or update, depending on [SubmitTaskEvent.isEditing].
+/// Separate from [TasksBloc] so a validation failure in the form does not put an
+/// error on the state the task list renders from.
 class TaskFormBloc extends Bloc<TaskFormEvent, TaskFormState> {
   TaskFormBloc({required this.repository}) : super(TaskFormInitial()) {
     on<SubmitTaskEvent>(_onSubmitTaskEvent);

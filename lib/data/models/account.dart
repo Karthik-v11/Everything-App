@@ -29,11 +29,10 @@ enum AccountType {
 /// current balance is not stored — it is the opening balance plus every
 /// transaction on the account (see [FinanceState.balanceOf]). A stored running
 /// balance would need every write to update two rows, and one missed update would
-/// leave a balance that no longer matches the transactions that produced it.
+/// leave a balance that no longer matches its transactions.
 ///
-/// A deleted account would orphan its transactions, so an account the user is
-/// finished with is [isArchived] instead: hidden from the pickers, still able to
-/// explain the history that points at it.
+/// A deleted account would orphan its transactions, so a finished account is
+/// [isArchived] instead: hidden from the pickers, still explaining its history.
 class Account extends Equatable {
   const Account({
     required this.id,
@@ -84,11 +83,9 @@ class Account extends Equatable {
   List<Object?> get props => [id, name, type, openingBalanceMinor, isArchived];
 }
 
-/// [kDefaultAccounts] is seeded on first launch.
-///
-/// A transaction cannot be saved without an account, so shipping zero accounts
-/// would make the first "Add transaction" a two-step errand through a screen the
-/// user has not found yet.
+/// [kDefaultAccounts] is seeded on first launch: a transaction cannot be saved
+/// without an account, so shipping none would make the first "Add transaction" a
+/// detour through a screen the user has not found yet.
 const List<({String name, AccountType type})> kDefaultAccounts = [
   (name: 'Cash', type: AccountType.cash),
   (name: 'Bank', type: AccountType.bank),

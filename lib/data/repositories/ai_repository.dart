@@ -5,19 +5,17 @@ import 'package:everything_app/data/entity/parsed_transaction_intent.dart';
 import 'package:everything_app/data/models/search_result.dart';
 import 'package:everything_app/data/services/ai_service.dart';
 
-/// [AiRepository] is the assistant's contract (Requirement 16), defined exactly as
-/// `design.md`'s `IAIRepository` sketches it.
+/// [AiRepository] is the assistant's contract (Requirement 16), matching
+/// `design.md`'s `IAIRepository`.
 ///
-/// It is the one repository that returns bare domain types rather than
-/// `Future<JsonResponse>` — a deliberate exception the plan calls out (Phase 10).
-/// The whole point of the interface is that Phase 13 can drop an on-device model
-/// in behind it with **no** change to the bloc, the sheet, or the tests, so the
-/// signatures are frozen to what both a rule-based engine and a model can return.
+/// The one repository returning bare domain types rather than
+/// `Future<JsonResponse>` — a deliberate exception. Signatures are limited to
+/// what both a rule-based engine and a model can return, so an engine swap needs
+/// no change to the bloc, the sheet, or the tests.
 ///
-/// It deliberately does **not** create anything: parsing and answering are its
-/// job, and persistence stays with the feature repositories the bloc already
-/// owns, so a parsed task is saved by `TasksRepository` under the same validation
-/// as one from the quick-add sheet.
+/// It creates nothing: persistence stays with the feature repositories, so a
+/// parsed task is saved by `TasksRepository` under the same validation as one
+/// from the quick-add sheet.
 abstract class AiRepository {
   /// [classifyIntent] guesses what a line is for, so the sheet can preselect the
   /// right mode. Pure and synchronous — it runs on every keystroke.

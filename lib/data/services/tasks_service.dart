@@ -7,9 +7,8 @@ import 'package:uuid/uuid.dart';
 
 /// [TasksService] is the Tasks module's persistence layer.
 ///
-/// Drift-backed rather than Dio-backed, but keeps the standard service
-/// contract: every method returns [JsonResponse] and nothing throws past this
-/// layer, so callers cannot distinguish local storage from a network source.
+/// Drift-backed, but keeps the standard service contract: every method returns
+/// [JsonResponse] and nothing throws past this layer.
 class TasksService {
   TasksService({required this.dao});
 
@@ -19,8 +18,8 @@ class TasksService {
 
   // ── Streams ────────────────────────────────────────────────────────────────
   //
-  // These return raw streams rather than JsonResponse. Failures surface as
-  // stream errors, which the bloc's emit.forEach catches.
+  // Raw streams rather than JsonResponse: failures surface as stream errors,
+  // which the bloc's emit.forEach catches.
 
   Stream<List<Task>> watchAll() =>
       dao.watchAll().map((rows) => rows.map(Task.fromEntry).toList());
@@ -95,9 +94,12 @@ class TasksService {
       await dao.upsert(prepared.toCompanion());
 
       return JsonResponse.created(message: 'Task added.', data: prepared);
-} on Exception catch (e) {
-  return JsonResponse.failure(statusCode: 500, message: 'DEBUG: $e');
-}
+    } on Exception {
+      return JsonResponse.failure(
+        statusCode: 500,
+        message: 'Error: could not add the task.',
+      );
+    }
   }
 
   /// [update] saves an edited task.
@@ -194,14 +196,11 @@ class TasksService {
     }
   }
 
-  /// [_nextOccurrenceOf] builds the successor of a completed recurring task.
+  /// [_nextOccurrenceOf] builds the successor of a completed recurring task, or
+  /// null when the task does not recur, has no due date, or the series has ended.
   ///
-  /// Returns null when the task does not recur, has no due date to advance from,
-  /// or the series has ended.
-  ///
-  /// The successor is a **fresh, pending task**: new id, cleared completion, and
-  /// subtasks reset to undone. Everything else (title, priority, category, tags,
-  /// notes, the rule itself) carries over, as required by Property 4.
+  /// The successor is a fresh, pending task: new id, cleared completion, subtasks
+  /// reset to undone. Everything else carries over (Property 4).
   Task? _nextOccurrenceOf(Task task) {
     final rule = task.recurrence;
     final dueDate = task.dueDate;
@@ -223,14 +222,10 @@ class TasksService {
       subtasks: [
         for (final subtask in task.subtasks) subtask.copyWith(isDone: false),
       ],
-      // Reminders move with the due date, keeping their offset — "30 minutes
-      // before" stays 30 minutes before (Requirement 5.3). Copying the absolute
-      // times over would hand the new occurrence a set of reminders that have
-      // already passed, and it would never be announced.
-      //
-      // Each gets a fresh id: the notification id is derived from it, and reusing
-      // it would let the successor's reminder collide with the one still queued
-      // for the occurrence just completed.
+      // Reminders keep their offset from the due date (Requirement 5.3); copying
+      // the absolute times would hand the successor reminders already past.
+      // Each gets a fresh id — the notification id derives from it, and reusing
+      // it would collide with the reminder still queued for the completed one.
       reminders: [
         for (final reminder in task.reminders)
           Reminder(id: _uuid.v4(), at: reminder.at.add(shift)),

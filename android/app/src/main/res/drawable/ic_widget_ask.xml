@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The sparkle the app uses for AI throughout; tinted accent, since Ask is the
+     one action here worth drawing the eye. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="@color/widget_accent">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M9,11l1.5,-3.5L14,6l-3.5,-1.5L9,1 7.5,4.5 4,6l3.5,1.5zM19,13l-1.5,3.5L14,18l3.5,1.5L19,23l1.5,-3.5L24,18l-3.5,-1.5zM11.5,13.5L9,8l-2.5,5.5L1,16l5.5,2.5L9,24l2.5,-5.5L17,16z" />
+</vector>

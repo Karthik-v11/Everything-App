@@ -50,6 +50,8 @@ class _WatchlistPageState extends State<WatchlistPage> {
             onPressed: () => showWatchlistSheet(context),
             icon: const Icon(Icons.add_rounded),
             tooltip: 'Track something',
+                                  color: context.colors.primary,
+
           ),
         ],
       ),

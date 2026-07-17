@@ -8,19 +8,14 @@ import 'package:uuid/uuid.dart';
 
 /// [VaultService] is the Vault's persistence layer (Requirement 9).
 ///
-/// It is the **only** place in the app where a vault plaintext exists, and it holds
-/// none of it: [save] takes a [VaultSecret], encrypts it, and keeps the ciphertext;
-/// [reveal] takes an id, decrypts one item, and hands the plaintext straight back
-/// to its caller. Nothing here caches, collects or logs a decrypted value.
-///
-/// That is what lets [watchAll] stream the whole vault safely — every item on it is
-/// an opaque blob, so the list, its filters and its search never touch a secret
-/// (Requirements 9.2, 9.5).
+/// The only place a vault plaintext exists, and it holds none of it: nothing
+/// here caches, collects or logs a decrypted value. That is what lets [watchAll]
+/// stream the whole vault safely — every item on it is an opaque blob, so the
+/// list, its filters and its search never touch a secret (Requirements 9.2, 9.5).
 ///
 /// Authentication is *not* enforced here. The gate is `VaultBloc`, which will not
-/// dispatch a reveal until the user has re-authenticated (Requirement 9.2), and the
-/// route is unreachable before then. A service that also checked would be a second
-/// place for that rule to be subtly different.
+/// dispatch a reveal until the user has re-authenticated (Requirement 9.2); a
+/// second check here would be a second place for that rule to drift.
 class VaultService {
   VaultService({required this.dao, required this.securityService});
 
@@ -29,8 +24,8 @@ class VaultService {
 
   static const Uuid _uuid = Uuid();
 
-  /// [watchAll] streams the vault as the list knows it: names, types, folders, and
-  /// ciphertext. No plaintext is decrypted to build it.
+  /// [watchAll] streams names, types, folders and ciphertext only — no plaintext
+  /// is decrypted to build it.
   Stream<List<VaultItem>> watchAll() =>
       dao.watchAll().map((rows) => rows.map(VaultItem.fromEntry).toList());
 
@@ -39,10 +34,9 @@ class VaultService {
 
   /// [save] encrypts [secret] and writes it against [item] (Requirement 9.1).
   ///
-  /// The item's [VaultItem.encryptedPayload] is *always* rewritten from [secret],
-  /// never carried over from the model that was passed in — the caller has no way
-  /// to produce valid ciphertext, and accepting one from them would be the one hole
-  /// through which an unencrypted payload could reach the table.
+  /// [VaultItem.encryptedPayload] is *always* rewritten from [secret], never
+  /// carried over from the model passed in: accepting a caller's payload is the
+  /// one hole through which plaintext could reach the table.
   Future<JsonResponse> save({
     required VaultItem item,
     required VaultSecret secret,
@@ -82,15 +76,13 @@ class VaultService {
     }
   }
 
-  /// [reveal] decrypts one item (Requirement 9.2).
+  /// [reveal] decrypts one item by id, on demand — never the list
+  /// (Requirement 9.2). The returned [VaultSecret] is the only plaintext the app
+  /// holds; callers drop it when the detail screen closes.
   ///
-  /// One item, by id, on demand — never the list. The returned [VaultSecret] is the
-  /// only plaintext the app will hold, and its caller is expected to drop it the
-  /// moment the detail screen closes.
-  ///
-  /// The row is re-read rather than decrypted from a [VaultItem] the caller already
-  /// had, so the plaintext is always of what is in the database *now* rather than of
-  /// a copy the list has been holding since it last streamed.
+  /// The row is re-read rather than decrypted from a caller's [VaultItem], so the
+  /// plaintext is of what is in the database now, not of a copy the list has held
+  /// since it last streamed.
   Future<JsonResponse> reveal(String id) async {
     try {
       final entry = await dao.findById(id);

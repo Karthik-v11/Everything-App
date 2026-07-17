@@ -12,21 +12,17 @@ import 'package:everything_app/data/repositories/documents_repository.dart';
 import 'package:everything_app/data/repositories/search_repository.dart';
 import 'package:everything_app/data/repositories/tasks_repository.dart';
 
-/// [AiService] is the assistant's rule-based engine (Requirement 16, Phase 10).
+/// [AiService] is the assistant's rule-based engine (Requirement 16).
 ///
-/// It is deliberately *not* backed by a model. Everything here is deterministic —
-/// regex, a keyword lexicon, and the app's own search index — which makes it
-/// instant, offline, private, and free of any download. Phase 13 replaces this one
-/// class with a `flutter_gemma`-backed one behind the identical [AiRepository]
-/// interface; nothing above this layer knows which is running, so the rule-based
-/// engine is a complete, shippable fallback rather than a stopgap.
+/// Deliberately not model-backed: regex, a keyword lexicon and the app's own
+/// search index make it deterministic, instant, offline and private. A
+/// model-backed implementation sits behind the identical [AiRepository]
+/// interface, so this is a complete, shippable fallback rather than a stopgap.
 ///
-/// Unusually for a service it composes other *repositories* rather than a single
-/// DAO: the assistant reads a task's categories, the search index, and a document
-/// through the same contracts the feature modules use, so it can never see the
-/// data differently from the screen that owns it. Parsing itself is pushed down
-/// into the pure [ParsedTaskIntent] / [ParsedTransactionIntent] value types, which
-/// are unit-testable with no dependencies at all.
+/// Unusually for a service it composes other repositories rather than a single
+/// DAO, so the assistant can never see the data differently from the screen that
+/// owns it. Parsing is pushed down into the pure [ParsedTaskIntent] /
+/// [ParsedTransactionIntent] value types.
 class AiService {
   AiService({
     required this.tasksRepository,
@@ -38,10 +34,9 @@ class AiService {
   final SearchRepository searchRepository;
   final DocumentsRepository documentsRepository;
 
-  /// [isModelLoaded] is always true: the rule-based engine has nothing to load, so
-  /// the sheet never has to gate on a model warming up. Phase 13's model-backed
-  /// implementation answers this honestly and the sheet's readiness check starts
-  /// to matter then, without changing.
+  /// Always true: the rule-based engine has nothing to load, so the sheet never
+  /// gates on a model warming up. The model-backed implementation answers this
+  /// honestly, and the sheet's readiness check starts to matter then.
   bool get isModelLoaded => true;
 
   // ── Classification ───────────────────────────────────────────────────────
@@ -115,10 +110,9 @@ class AiService {
     caseSensitive: false,
   );
 
-  /// [classify] guesses what one line is for (Requirement 16), which the sheet
-  /// uses only as the default mode. It is pure and synchronous so the sheet can
-  /// re-guess on every keystroke without a round trip; the user's manual pick
-  /// always wins over it.
+  /// Guesses what one line is for (Requirement 16); the sheet uses it only as the
+  /// default mode, and the user's manual pick always wins. Pure and synchronous so
+  /// the sheet can re-guess on every keystroke without a round trip.
   static AiIntent classify(String input) {
     final text = input.trim();
     if (text.isEmpty) return AiIntent.task;
@@ -157,16 +151,16 @@ class AiService {
 
   // ── Parsing ──────────────────────────────────────────────────────────────
 
-  /// [parseTaskIntent] resolves `#category` tokens against the user's real
-  /// categories, then hands the line to the pure parser (Requirement 16.2).
+  /// Resolves `#category` tokens against the user's real categories, then hands
+  /// the line to the pure parser (Requirement 16.2).
   Future<ParsedTaskIntent> parseTaskIntent(String input) async {
     final categories = await _categories();
     return ParsedTaskIntent.parse(input, categories: categories);
   }
 
-  /// [parseTransactionIntent] needs nothing from the database — the category
-  /// lexicon is a constant — but stays async to match the interface the model
-  /// implementation will need (Requirement 16.3).
+  /// Needs nothing from the database — the category lexicon is a constant — but
+  /// stays async to match the interface the model implementation needs
+  /// (Requirement 16.3).
   Future<ParsedTransactionIntent> parseTransactionIntent(String input) async =>
       ParsedTransactionIntent.parse(input);
 
@@ -412,10 +406,9 @@ class AiService {
     caseSensitive: false,
   );
 
-  /// [searchWithAI] strips the natural-language wrapper off a query — "Find my
-  /// passport" → "passport" — then runs it through the same FTS index Global
-  /// Search uses (Requirement 16.5, 17). Phase 13's model can rank the same
-  /// results more cleverly; the contract does not change.
+  /// Strips the natural-language wrapper off a query — "Find my passport" →
+  /// "passport" — then runs it through the same FTS index Global Search uses
+  /// (Requirements 16.5, 17).
   Future<List<SearchResult>> searchWithAI(String query) async {
     final cleaned = _stripFiller(query);
     final response = await searchRepository.search(
@@ -426,11 +419,9 @@ class AiService {
     return response.data! as List<SearchResult>;
   }
 
-  /// [answerQuestion] answers a question about stored data by searching for it and
-  /// reporting what was found (Requirement 16, "Answer questions about stored
-  /// information"). It is grounded — it only ever says what the search returned —
-  /// which is the honest ceiling of a rule-based engine, and a safe one: it cannot
-  /// invent a fact the database does not hold.
+  /// Answers a question about stored data by searching and reporting what was
+  /// found (Requirement 16). Grounded: it only ever says what the search returned,
+  /// so it cannot invent a fact the database does not hold.
   Future<String> answerQuestion(String question) async {
     final results = await searchWithAI(question);
 
@@ -456,10 +447,9 @@ class AiService {
     return 'I found $counts.\n$examples';
   }
 
-  /// [summarizeDocument] gives a short extractive summary of a document
-  /// (Requirement 16.6). Extractive, not generative: it lifts the opening lines
-  /// verbatim and strips their Markdown, so it can never misstate what the
-  /// document says — a rule-based summary that paraphrased would be guessing.
+  /// A short extractive summary of a document (Requirement 16.6). Extractive, not
+  /// generative: it lifts the opening lines verbatim and strips their Markdown, so
+  /// it can never misstate what the document says.
   Future<String> summarizeDocument(String documentId) async {
     final response = await documentsRepository.findById(documentId);
 

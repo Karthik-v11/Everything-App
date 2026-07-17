@@ -44,8 +44,6 @@ class AuthState extends Equatable {
   int get attemptsRemaining =>
       (kMaxPINAttempts - failedAttempts).clamp(0, kMaxPINAttempts);
 
-  /// [copyWith] replaces only the given fields.
-  ///
   /// [clearLockedUntil] is required to clear a lockout: under the `??` idiom,
   /// `lockedUntil: null` is indistinguishable from the argument not being passed.
   AuthState copyWith({

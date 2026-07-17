@@ -5,10 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 /// (Requirement 25.1).
 ///
 /// It exists rather than the Settings screen calling [PackageInfo] directly
-/// because a platform channel is I/O, and I/O belongs behind a service — the same
-/// rule every other read in this app follows. It is also the only place outside
-/// the protected `XClientInterceptor` that needs this, so it is one small class
-/// rather than a shared dependency.
+/// because a platform channel is I/O, and I/O belongs behind a service.
 class AppInfoService {
   AppInfoService();
 

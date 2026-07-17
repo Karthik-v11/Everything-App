@@ -10,17 +10,10 @@ part 'transaction_form_state.dart';
 
 /// [TransactionFormBloc] saves a new or edited transaction (Requirement 12.1).
 ///
-/// Style B: one focused action with a clear start and end. It holds no data
-/// between events; the saved transaction goes to the database and reaches every
-/// screen through [FinanceBloc]'s stream.
-///
-/// It is separate from [FinanceBloc] for the same reason [TaskFormBloc] is
-/// separate from [TasksBloc]: a validation failure in the form must not put an
-/// error on the state the dashboard renders from.
-///
-/// Events:
-/// 1) [SubmitTransactionEvent] — create or update, depending on [SubmitTransactionEvent.isEditing].
-/// 2) [ResetTransactionFormEvent] — clear the state after the sheet closes.
+/// It holds no data between events: the saved transaction goes to the database
+/// and reaches every screen through [FinanceBloc]'s stream. Separate from
+/// [FinanceBloc] so a form failure cannot put an error on the state the
+/// dashboard renders from.
 class TransactionFormBloc
     extends Bloc<TransactionFormEvent, TransactionFormState> {
   TransactionFormBloc({required this.repository})

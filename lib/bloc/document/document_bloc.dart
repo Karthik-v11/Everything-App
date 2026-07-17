@@ -12,27 +12,16 @@ part 'document_state.dart';
 
 /// [DocumentBloc] is the editor for a single document (Requirement 11).
 ///
-/// Style A: it accumulates the live title, body, editor/preview mode and dirty
-/// flag across many keystroke events. The list of documents lives in
-/// [DocumentsBloc]; this bloc owns exactly the one open in the editor.
+/// The list of documents lives in [DocumentsBloc]; this bloc owns exactly the one
+/// open in the editor.
 ///
-/// **Auto-save.** Requirement 11.2 asks for a save every 30 seconds. A periodic
-/// timer, started on load, dispatches [SaveDocumentEvent] on each tick; the
-/// handler writes only when the document is dirty, so an idle editor makes no
-/// writes. The saved snapshot is built from the live state at the instant the
-/// save fires and is written unchanged — no defaulting of an empty title, no
-/// trimming — so the stored content is structurally equal to what was on screen
-/// (Property 12).
+/// Auto-save (Requirement 11.2): a periodic timer started on load dispatches
+/// [SaveDocumentEvent]; the handler writes only when dirty, so an idle editor makes
+/// no writes. The snapshot is written unchanged — no defaulting or trimming — so the
+/// stored content is structurally equal to what was on screen (Property 12).
 ///
-/// The document carries a stable id from the moment it opens — minted here for a
-/// new document — so a create and an update take the same upsert and the
-/// auto-save never has to tell them apart.
-///
-/// Events:
-/// 1) [LoadDocumentEvent] — open a document by id, or start a new one.
-/// 2) [ChangeDocumentTitleEvent] / [ChangeDocumentContentEvent] — live edits.
-/// 3) [TogglePreviewEvent] — switch between the editor and the rendered preview.
-/// 4) [SaveDocumentEvent] — persist the current state (auto or manual).
+/// The document carries a stable id from the moment it opens, minted here when new,
+/// so create and update take the same upsert and auto-save never tells them apart.
 class DocumentBloc extends Bloc<DocumentEvent, DocumentState> {
   DocumentBloc({required this.repository}) : super(const DocumentState()) {
     on<LoadDocumentEvent>(_onLoadDocumentEvent);
@@ -46,13 +35,11 @@ class DocumentBloc extends Bloc<DocumentEvent, DocumentState> {
 
   static const Uuid _uuid = Uuid();
 
-  /// The auto-save clock (Requirement 11.2). Held so it can be cancelled when the
-  /// editor is torn down or a different document is loaded — a stray timer firing
-  /// after close would try to emit on a closed bloc.
+  /// The auto-save clock (Requirement 11.2). Held so it can be cancelled on close or
+  /// reload — a stray tick would try to emit on a closed bloc.
   Timer? _autoSaveTimer;
 
-  /// [autoSaveInterval] is exposed so a test can drive the cadence explicitly
-  /// rather than waiting 30 real seconds.
+  /// Exposed so a test can drive the cadence rather than waiting 30 real seconds.
   static const Duration autoSaveInterval = Duration(seconds: 30);
 
   FutureOr<void> _onLoadDocumentEvent(
@@ -68,8 +55,8 @@ class DocumentBloc extends Bloc<DocumentEvent, DocumentState> {
       final document = existing is Document
           ? existing
           : Document(
-              // A new document opened at this id. `createdAt` is stamped now so
-              // the first auto-save writes a complete row.
+              // `createdAt` is stamped now so the first auto-save writes a
+              // complete row.
               id: event.documentId.isBlank ? _uuid.v4() : event.documentId,
               title: '',
               content: '',
@@ -116,10 +103,9 @@ class DocumentBloc extends Bloc<DocumentEvent, DocumentState> {
 
   /// [_onSaveDocumentEvent] writes the current state (Requirement 11.2).
   ///
-  /// It no-ops when nothing has changed since the last write, and when the
-  /// document is still empty — an untouched editor should not leave a blank row
-  /// behind. Otherwise it snapshots the live title and body *exactly* and upserts
-  /// them (Property 12).
+  /// No-ops when nothing changed, and when the document is still empty — an
+  /// untouched editor should not leave a blank row behind. Otherwise it snapshots
+  /// the live title and body exactly and upserts them (Property 12).
   FutureOr<void> _onSaveDocumentEvent(
     SaveDocumentEvent event,
     Emitter<DocumentState> emit,

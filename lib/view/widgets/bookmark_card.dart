@@ -163,6 +163,8 @@ class _Thumbnail extends StatelessWidget {
         width: _size,
         height: _size,
         fit: BoxFit.cover,
+        // Decode to the display box rather than the source resolution.
+        cacheWidth: (_size * MediaQuery.devicePixelRatioOf(context)).round(),
         // No spinner and no error state: offline, the image simply never arrives
         // and the icon is what the card was always going to show.
         errorBuilder: (context, error, stackTrace) => fallback,

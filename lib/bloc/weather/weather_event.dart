@@ -8,18 +8,15 @@ abstract class WeatherEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// [FetchWeatherEvent] refreshes the current city.
-///
-/// Dispatched at launch and on pull-to-refresh. It does nothing while no city is
-/// set, so it is always safe to fire.
+/// [FetchWeatherEvent] refreshes the current city. No-ops while no city is set,
+/// so it is always safe to fire.
 class FetchWeatherEvent extends WeatherEvent {
   const FetchWeatherEvent();
 }
 
-/// [ChangeWeatherCityEvent] sets the place the weather is about, and fetches it.
-///
-/// [city] is a name the Weather_Service can resolve — `Bengaluru`, or
-/// `Springfield,US` where the name alone is ambiguous.
+/// [ChangeWeatherCityEvent] sets the city, then fetches it. [city] must be a
+/// name the weather API can resolve — `Bengaluru`, or `Springfield,US` where the
+/// name alone is ambiguous.
 class ChangeWeatherCityEvent extends WeatherEvent {
   const ChangeWeatherCityEvent({required this.city});
 

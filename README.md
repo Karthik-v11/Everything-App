@@ -21,7 +21,7 @@ The app is four bottom-nav modules, plus search and settings.
 
 ## Other features
 
-- **Assistant** — add a task or a transaction by typing a sentence. Parsing is rule-based, so it is instant, deterministic, and works offline. Prose paths (summarize a document, answer a grounded question) are backed by a model: either the Gemini API or an on-device Gemma model you download in Settings. With neither configured, the assistant still runs its rule-based engine.
+- **Assistant** — add a task or a transaction by typing a sentence. Parsing is rule-based, so it is instant, deterministic, and works offline. Prose paths (summarize a document, answer a grounded question) are backed by the Gemini API. Without `GEMINI_API_KEY` configured, the assistant still runs its rule-based engine.
 - **Global search** across every module
 - **Home screen widgets** (Android `AppWidgetProvider` / iOS WidgetKit)
 - **Share into the app** from any other app, cold-start or already-running
@@ -51,9 +51,8 @@ Every key in `.env` is optional and degrades gracefully — a missing key costs 
 | `WEATHER_API_KEY` | Dashboard weather | [openweathermap.org](https://openweathermap.org/api) |
 | `NEWS_API_KEY` | Dashboard headlines | [newsapi.org](https://newsapi.org) |
 | `GEMINI_API_KEY` | Assistant prose paths | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| `HF_TOKEN` | On-device Gemma download | [huggingface.co](https://huggingface.co/settings/tokens) |
 
-Requires Flutter SDK ^3.12.2. iOS deployment target is 16.0, forced by the on-device LLM stack.
+Requires Flutter SDK ^3.12.2.
 
 ## Development
 

@@ -11,21 +11,16 @@ import 'package:timezone/timezone.dart' as tz;
 /// [NotificationService] is the app's only contact with the OS notification
 /// queue (Requirement 5).
 ///
-/// It keeps the standard service contract — every method returns [JsonResponse]
-/// and nothing throws past this layer — so a device that has revoked the
-/// permission, or an Android build that forbids exact alarms, degrades into a
+/// Every method returns [JsonResponse] and nothing throws past this layer, so a
+/// revoked permission or a build that forbids exact alarms degrades into a
 /// failure message rather than an exception in a bloc.
-///
-/// The plugin is injected rather than constructed here so that the reconciliation
-/// logic can be tested against a fake.
 class NotificationService {
   NotificationService({required this.plugin});
 
   final FlutterLocalNotificationsPlugin plugin;
 
-  /// Two channels, not five: the user wants to silence "the summaries" or "the
-  /// task alerts", not each of the five kinds separately, and every channel added
-  /// here is permanent — Android will not let one be removed once it has shipped.
+  /// Channels are grouped by what a user would silence, not per kind. Every
+  /// channel added here is permanent — Android cannot remove one once shipped.
   static const AndroidNotificationChannel _tasksChannel =
       AndroidNotificationChannel(
     'tasks',
@@ -50,9 +45,7 @@ class NotificationService {
     importance: Importance.high,
   );
 
-  /// Its own channel rather than the task one: a reminder to buy something is not
-  /// a task alert, and a user who silences their task reminders has not asked to
-  /// stop hearing that the thing they wanted is worth going out for.
+  /// Its own channel: silencing task reminders must not silence shopping ones.
   static const AndroidNotificationChannel _toBuyChannel =
       AndroidNotificationChannel(
     'to_buy',
@@ -70,13 +63,8 @@ class NotificationService {
 
   /// [initialize] prepares the timezone database, the plugin and the channels.
   ///
-  /// Timezones are set up here rather than in `start.dart` so that nothing pays
-  /// for the timezone database unless notifications are actually used, and so
-  /// that the bootstrap stays untouched (CLAUDE.md §1).
-  ///
-  /// `zonedSchedule` needs a real IANA zone: scheduling in UTC would fire a 9am
-  /// reminder at the wrong hour for everyone outside London, and scheduling in
-  /// local wall-clock time without a zone would drift across a DST boundary.
+  /// `zonedSchedule` needs a real IANA zone: UTC fires reminders at the wrong
+  /// local hour, and local wall-clock without a zone drifts across DST.
   Future<JsonResponse> initialize() async {
     if (_isInitialized) {
       return JsonResponse.success(message: 'Notifications ready.');
@@ -89,10 +77,10 @@ class NotificationService {
 
       await plugin.initialize(
         settings: const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-          // All three are requested explicitly from Settings, not silently on
-          // first launch: a permission prompt the user did not ask for is the
-          // one they deny.
+          // Android masks the status-bar icon to its alpha channel, so the
+          // full-colour launcher bitmap would render as a solid white square.
+          android: AndroidInitializationSettings('@drawable/ic_stat_everything'),
+          // Requested explicitly from Settings, not silently on first launch.
           iOS: DarwinInitializationSettings(
             requestAlertPermission: false,
             requestBadgePermission: false,
@@ -168,9 +156,8 @@ class NotificationService {
   /// [requestPermission] asks the user for the notification permission, and on
   /// Android 14+ for the exact-alarm permission that reminders depend on.
   ///
-  /// Exact alarms are requested **separately and second**: on Android that opens
-  /// a system settings page rather than a dialog, and asking for it before the
-  /// user has even agreed to notifications reads as hostile.
+  /// Exact alarms are requested separately and second: on Android that opens a
+  /// system settings page rather than a dialog.
   Future<JsonResponse> requestPermission() async {
     try {
       if (Platform.isAndroid) {
@@ -225,26 +212,18 @@ class NotificationService {
 
   /// [applyPlan] makes the app's slice of the OS queue match [plan] exactly.
   ///
-  /// This is a reconciliation, not a rewrite: what is already scheduled and still
-  /// wanted is left alone. Cancelling everything and rescheduling would be far
-  /// simpler, but it would drop and re-arm every alarm on every keystroke-driven
-  /// task write, and on Android each re-arm is a real `AlarmManager` round trip.
+  /// A reconciliation, not a rewrite: what is already scheduled and still wanted
+  /// is left alone, because each re-arm is an `AlarmManager` round trip on
+  /// Android and every task write would pay for it.
   ///
-  /// The OS is the only store. It reports what is pending; each pending
-  /// notification carries its own definition in its payload, so a plan built now
-  /// can be compared against a queue armed by a previous run of the app. Anything
-  /// pending that the plan does not contain — a reminder on a task since
-  /// completed, deleted, or rescheduled — is cancelled, which is what makes it
-  /// impossible for the queue to drift from the database.
+  /// The OS is the only store; each pending notification carries its definition
+  /// in its payload, so a plan can be compared against a queue armed by a
+  /// previous run. Anything pending the plan does not contain is cancelled,
+  /// which is what stops the queue drifting from the database.
   ///
-  /// [owns] is which kinds this plan speaks for, and it is what lets more than one
-  /// module schedule reminders at all. The cancel-what-I-did-not-ask-for rule is
-  /// the whole mechanism above, so a reconciler that read the *entire* queue would
-  /// cancel every notification belonging to a module other than its own: the Tasks
-  /// sync would withdraw the to-buy reminders, the To-Buy sync would withdraw the
-  /// task reminders, and the last write would win until the next one undid it. A
-  /// caller therefore reconciles only the kinds it owns and does not touch a
-  /// pending notification that is not one of them.
+  /// [owns] scopes that rule to the kinds this caller speaks for. A reconciler
+  /// reading the entire queue would cancel other modules' notifications, so each
+  /// one touches only the kinds it owns.
   Future<JsonResponse> applyPlan(
     List<ScheduledNotification> plan, {
     required Set<NotificationKind> owns,
@@ -264,11 +243,9 @@ class NotificationService {
       for (final request in pending) {
         final existing = ScheduledNotification.decode(request.payload);
 
-        // Undecodable means it was scheduled by a build of the app that wrote a
-        // different payload. It can never be matched — by this reconciler or any
-        // other — so it is dropped rather than left to fire something the app can
-        // no longer explain. Every reconciler applies this, which is harmless:
-        // the first one to run clears it and the rest find nothing.
+        // Undecodable means an older build wrote a different payload. It can
+        // never be matched by any reconciler, so it is dropped rather than left
+        // to fire something the app can no longer explain.
         if (existing == null || existing.id != request.id) {
           await plugin.cancel(id: request.id);
           cancelled++;
@@ -309,16 +286,12 @@ class NotificationService {
     }
   }
 
-  /// [show] delivers a notification **now** (Requirements 14.3, 14.4, 14.5).
+  /// [show] delivers a notification now (Requirements 14.3, 14.4, 14.5).
   ///
-  /// This is the budget alerts' path, and the only one that does not go through
-  /// [applyPlan]. A budget alert has no future moment to be scheduled at: it
-  /// becomes true the instant the user saves the transaction that makes it true,
-  /// and a plan can only describe things that have not happened yet.
-  ///
-  /// It therefore never enters the pending queue, so [applyPlan]'s reconciliation
-  /// neither sees it nor cancels it. Deciding whether an alert is news or a repeat
-  /// is the caller's job — the OS remembers nothing here (see [BudgetBloc]).
+  /// The budget alerts' path: a budget alert has no future moment to schedule
+  /// at, so it never enters the pending queue and [applyPlan] neither sees nor
+  /// cancels it. Deciding whether an alert is news or a repeat is the caller's
+  /// job — the OS remembers nothing here (see [BudgetBloc]).
   Future<JsonResponse> show({
     required int id,
     required NotificationKind kind,
@@ -383,8 +356,8 @@ class NotificationService {
         priority: kind.isSummary ? Priority.defaultPriority : Priority.high,
         category: switch (kind) {
           _ when kind.isSummary => AndroidNotificationCategory.status,
-          // A budget alert reports something that already happened; the reminder
-          // category is for something the user still has to do.
+          // A budget alert reports what already happened; reminder is for
+          // something the user still has to do.
           _ when kind.isBudget => AndroidNotificationCategory.event,
           _ => AndroidNotificationCategory.reminder,
         },
@@ -400,10 +373,8 @@ class NotificationService {
   /// [_scheduleModeFor] picks the strongest alarm the OS will actually grant.
   ///
   /// An exact alarm on Android 14+ needs a permission the user can refuse, and
-  /// `zonedSchedule` **throws** if asked for one without it. Falling back to
-  /// inexact means a reminder can be a few minutes late; asking anyway means it
-  /// never arrives at all. A summary is a digest, so it takes the inexact,
-  /// battery-cheap path either way.
+  /// `zonedSchedule` throws if asked for one without it. Summaries are digests
+  /// and take the inexact, battery-cheap path either way.
   AndroidScheduleMode _scheduleModeFor(NotificationKind kind) {
     if (kind.isSummary) return AndroidScheduleMode.inexactAllowWhileIdle;
 

@@ -74,7 +74,7 @@ class TasksDao extends DatabaseAccessor<AppDatabase> with _$TasksDaoMixin {
   // ── Categories ─────────────────────────────────────────────────────────────
 
   Stream<List<CategoryEntry>> watchCategories() =>
-      select(categoriesTable).watch();
+      select(categoriesTable).watch().distinctList();
 
   Future<List<CategoryEntry>> allCategories() => select(categoriesTable).get();
 

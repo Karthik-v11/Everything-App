@@ -4,10 +4,6 @@ import 'package:everything_app/data/models/json_response.dart';
 
 /// [DocumentsService] is the Document Writer's persistence layer
 /// (Requirement 11).
-///
-/// It wraps the Drift DAO but keeps CLAUDE.md's `Future<JsonResponse>` contract,
-/// so the blocs are written exactly as they would be against an HTTP service and
-/// never learn the data is local.
 class DocumentsService {
   DocumentsService({required this.dao});
 
@@ -36,9 +32,8 @@ class DocumentsService {
 
   /// [save] writes a document, creating or updating it (Requirement 11.2).
   ///
-  /// It is a plain upsert because the id is stable from the moment the editor
-  /// opens: a new document and a resumed one take the same path, and the
-  /// auto-save never has to decide which it is.
+  /// A plain upsert: the id is stable from the moment the editor opens, so the
+  /// auto-save never has to decide whether the document is new or resumed.
   Future<JsonResponse> save(Document document) async {
     try {
       await dao.upsert(document.toCompanion());

@@ -28,10 +28,10 @@ class FinanceWidgetProvider : EverythingWidgetProvider() {
             R.id.widget_caption,
             data.getString("spentCaption", null).orEmpty().ifEmpty { "Spending" },
         )
-        views.setTextViewText(
-            R.id.widget_updated,
-            data.getString("updatedAtLabel", null).orEmpty(),
-        )
+
+        // No "updated at" here: at 2x1 the layout has no room for a footer, so the
+        // view it was written to no longer exists. `updatedAtLabel` is still
+        // published — the tasks widget draws it.
 
         openOnTap(context, views, R.id.widget_add, "transaction/new")
     }

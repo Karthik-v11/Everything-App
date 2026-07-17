@@ -6,11 +6,39 @@ import 'package:everything_app/core/utils/extensions.dart';
 import 'package:everything_app/core/utils/helpers.dart';
 import 'package:everything_app/core/utils/responsive.dart';
 import 'package:everything_app/data/models/task.dart';
+import 'package:everything_app/data/models/to_buy_item.dart';
 import 'package:everything_app/view/screens/library/to_buy_sheet.dart';
 import 'package:everything_app/view/widgets/app_choice_chip.dart';
 import 'package:everything_app/view/widgets/to_buy_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+/// One row of the flattened list: the wishlist is two sections and a header, and
+/// `ListView.builder` needs a single index space over them.
+sealed class _Row {
+  const _Row();
+}
+
+class _ItemRow extends _Row {
+  const _ItemRow(this.item);
+
+  final ToBuyItem item;
+}
+
+class _HeaderRow extends _Row {
+  const _HeaderRow(this.count);
+
+  final int count;
+}
+
+List<_Row> _rowsOf(ToBuyState state) => [
+      for (final item in state.pending) _ItemRow(item),
+      if (state.purchased.isNotEmpty) ...[
+        _HeaderRow(state.purchased.length),
+        if (state.showPurchased)
+          for (final item in state.purchased) _ItemRow(item),
+      ],
+    ];
 
 /// [ToBuyPage] is the shopping wishlist (Requirement 7).
 class ToBuyPage extends StatefulWidget {
@@ -50,6 +78,8 @@ class _ToBuyPageState extends State<ToBuyPage> {
             onPressed: () => showToBuySheet(context),
             icon: const Icon(Icons.add_rounded),
             tooltip: 'Add an item',
+                                  color: context.colors.primary,
+
           ),
         ],
       ),
@@ -96,57 +126,7 @@ class _ToBuyPageState extends State<ToBuyPage> {
               Expanded(
                 child: pending.isEmpty && purchased.isEmpty
                     ? _Empty(isFiltered: state.isFiltered)
-                    : ListView(
-                        padding: responsivePadding(context)
-                            .copyWith(top: 8, bottom: 120),
-                        children: [
-                          for (final item in pending) ...[
-                            ToBuyCard(
-                              item: item,
-                              onToggle: (isPurchased) =>
-                                  context.read<ToBuyBloc>().add(
-                                        ToggleToBuyPurchasedEvent(
-                                          item: item,
-                                          isPurchased: isPurchased,
-                                        ),
-                                      ),
-                              onTap: () => showToBuySheet(context, item: item),
-                            ),
-                            const Gap(8),
-                          ],
-                          if (purchased.isNotEmpty) ...[
-                            const Gap(8),
-                            _BoughtHeader(
-                              count: purchased.length,
-                              isExpanded: state.showPurchased,
-                              onToggle: () => context.read<ToBuyBloc>().add(
-                                    FilterToBuyEvent(
-                                      showPurchased: !state.showPurchased,
-                                      priority: state.priority,
-                                    ),
-                                  ),
-                            ),
-                            if (state.showPurchased) ...[
-                              const Gap(8),
-                              for (final item in purchased) ...[
-                                ToBuyCard(
-                                  item: item,
-                                  onToggle: (isPurchased) =>
-                                      context.read<ToBuyBloc>().add(
-                                            ToggleToBuyPurchasedEvent(
-                                              item: item,
-                                              isPurchased: isPurchased,
-                                            ),
-                                          ),
-                                  onTap: () =>
-                                      showToBuySheet(context, item: item),
-                                ),
-                                const Gap(8),
-                              ],
-                            ],
-                          ],
-                        ],
-                      ),
+                    : _ItemList(state: state, rows: _rowsOf(state)),
               ),
             ],
           );
@@ -235,6 +215,51 @@ class _Filters extends StatelessWidget {
 }
 
 /// [_BoughtHeader] is the disclosure for the purchased items.
+class _ItemList extends StatelessWidget {
+  const _ItemList({required this.state, required this.rows});
+
+  final ToBuyState state;
+  final List<_Row> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      padding: responsivePadding(context).copyWith(top: 8, bottom: 120),
+      itemCount: rows.length,
+      // The bought header gets a wider gap, setting the section apart.
+      separatorBuilder: (context, index) =>
+          rows[index + 1] is _HeaderRow ? const Gap(16) : const Gap(8),
+      itemBuilder: (context, index) {
+        final row = rows[index];
+
+        return switch (row) {
+          _ItemRow(:final item) => ToBuyCard(
+              key: ValueKey(item.id),
+              item: item,
+              onToggle: (isPurchased) => context.read<ToBuyBloc>().add(
+                    ToggleToBuyPurchasedEvent(
+                      item: item,
+                      isPurchased: isPurchased,
+                    ),
+                  ),
+              onTap: () => showToBuySheet(context, item: item),
+            ),
+          _HeaderRow(:final count) => _BoughtHeader(
+              count: count,
+              isExpanded: state.showPurchased,
+              onToggle: () => context.read<ToBuyBloc>().add(
+                    FilterToBuyEvent(
+                      showPurchased: !state.showPurchased,
+                      priority: state.priority,
+                    ),
+                  ),
+            ),
+        };
+      },
+    );
+  }
+}
+
 class _BoughtHeader extends StatelessWidget {
   const _BoughtHeader({
     required this.count,

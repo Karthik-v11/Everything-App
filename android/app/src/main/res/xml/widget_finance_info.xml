@@ -1,10 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  2x1: the widget carries one number, and a cell of height is all a number needs.
+
+  previewLayout is what the picker draws. Without it the picker falls back to
+  previewImage, and with neither it draws nothing — which is the blank tile the
+  widget list used to show. It points at a *preview* layout rather than at
+  initialLayout because the picker renders it with no provider running to bind
+  data: the real layout previews as the empty boxes it legitimately is before the
+  app has published. previewImage is the fallback for launchers below API 31,
+  which ignore previewLayout entirely.
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_finance"
+    android:previewLayout="@layout/widget_finance_preview"
+    android:previewImage="@mipmap/ic_launcher"
     android:minWidth="140dp"
-    android:minHeight="110dp"
+    android:minHeight="40dp"
     android:targetCellWidth="2"
-    android:targetCellHeight="2"
+    android:targetCellHeight="1"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/widget_finance_description"

@@ -9,14 +9,9 @@ part 'bookmarks_dao.g.dart';
 /// [BookmarksDao] is every SQL statement the Bookmarks sub-feature issues
 /// (Requirement 6).
 ///
-/// As in the other DAOs, `watch*` returns a stream: drift re-runs the query on any
-/// change to the rows behind it, so a bookmark saved in the sheet — or enriched in
-/// the background once its page has been fetched — refreshes the list with no
-/// reload event.
-///
-/// It reaches [FoldersTable] as well as its own, and every folder statement here is
-/// scoped to [FolderScope.bookmark]. The vault shares that table, and an unscoped
-/// query would put the user's vault folders in the bookmark folder picker.
+/// It shares [FoldersTable] with the vault, so every folder statement here is
+/// scoped to [FolderScope.bookmark] — an unscoped query would put the user's
+/// vault folders in the bookmark folder picker.
 @DriftAccessor(tables: [BookmarksTable, FoldersTable])
 class BookmarksDao extends DatabaseAccessor<AppDatabase>
     with _$BookmarksDaoMixin {
@@ -54,11 +49,8 @@ class BookmarksDao extends DatabaseAccessor<AppDatabase>
       into(foldersTable).insertOnConflictUpdate(folder);
 
   /// [deleteFolder] removes a folder and returns its bookmarks to the top level.
-  ///
-  /// The bookmarks themselves are kept. Deleting a folder is a statement about how
-  /// the user wants their links *arranged*, not about whether they still want them
-  /// — and a folder delete that silently took thirty saved links with it is the
-  /// kind of thing an undo button exists to apologise for.
+  /// The bookmarks are kept: deleting a folder is about how links are arranged,
+  /// not whether the user still wants them.
   Future<void> deleteFolder(String id) => transaction(() async {
         await (update(bookmarksTable)..where((b) => b.folderId.equals(id)))
             .write(const BookmarksTableCompanion(folderId: Value(null)));

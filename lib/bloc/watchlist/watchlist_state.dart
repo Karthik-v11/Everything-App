@@ -21,11 +21,8 @@ class WatchlistState extends Equatable {
   final WatchStatus? status;
   final String query;
 
-  /// [visibleItems] is the list under the active filters and search query.
-  ///
-  /// What is being watched now comes first, then the wishlist, then what is done
-  /// with — the order the user actually cares about them in. A watchlist that opened
-  /// on the things they finished two years ago would be a list of the past.
+  /// The list under the active filters and query, ordered watching → wishlist →
+  /// completed → dropped, then newest first.
   List<WatchlistItem> get visibleItems {
     final matched = [
       for (final item in items)
@@ -58,10 +55,8 @@ class WatchlistState extends Equatable {
   bool get isFiltered =>
       mediaType != null || status != null || query.isNotBlank;
 
-  /// [countOfStatus] is how many entries a status holds — the number on its chip.
-  ///
-  /// It counts within the media-type filter but ignores the status filter, so the
-  /// status chips keep showing what is behind them once one is selected.
+  /// The number on a status chip. Counts within the media-type filter but ignores
+  /// the status filter, so chips keep their counts once one is selected.
   int countOfStatus(WatchStatus value) {
     var count = 0;
     for (final item in items) {
@@ -73,8 +68,7 @@ class WatchlistState extends Equatable {
     return count;
   }
 
-  /// [mediaTypes] are the types the user actually has entries in — the only ones
-  /// worth a chip.
+  /// Only the types the user actually has entries in get a chip.
   List<MediaType> get mediaTypes {
     final present = <MediaType>{for (final item in items) item.mediaType};
 

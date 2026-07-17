@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:equatable/equatable.dart';
 import 'package:everything_app/core/utils/constants.dart';
 import 'package:everything_app/data/models/article.dart';
@@ -11,19 +12,12 @@ part 'news_state.dart';
 
 /// [NewsBloc] owns the Dashboard's news section (Requirements 3.9, 3.11).
 ///
-/// Style A, hydrated — and as in [WeatherBloc] the hydration **is** the offline
-/// cache: the headlines last fetched for each tab are part of the state, so they
-/// are on screen before the first request is made and remain there when it fails.
+/// As in [WeatherBloc], the hydrated state *is* the offline cache
+/// (Requirement 3.11).
 ///
-/// Each category is cached separately, because each is a separate request. A tab
-/// the user has never opened is empty and fetches on first sight; a tab they
-/// opened an hour ago re-fetches; a tab they opened a minute ago does not, which
-/// is what keeps a scroll through six tabs from spending six requests of a daily
-/// quota the free News_Service plan measures in dozens.
-///
-/// Events:
-/// 1) [FetchNewsEvent] — refresh a category. Fired at launch and on pull.
-/// 2) [SelectNewsCategoryEvent] — the tabs.
+/// Each category is cached separately with its own [kStaleCacheThreshold] check,
+/// so tabbing back and forth does not spend six requests of the free news plan's
+/// daily quota, which is measured in dozens.
 class NewsBloc extends HydratedBloc<NewsEvent, NewsState> {
   NewsBloc({required this.repository}) : super(const NewsState()) {
     on<FetchNewsEvent>(_onFetchNewsEvent);
@@ -44,8 +38,8 @@ class NewsBloc extends HydratedBloc<NewsEvent, NewsState> {
       final response = await repository.headlines(category: category);
 
       if (!response.success) {
-        // Requirement 3.11: cached headlines are the answer when the network is
-        // not, and they are delivered without an error the user cannot act on.
+        // Requirement 3.11: surface the error only when the category has no
+        // cached headlines to fall back on.
         emit(
           state.copyWith(
             isLoading: false,
@@ -82,8 +76,7 @@ class NewsBloc extends HydratedBloc<NewsEvent, NewsState> {
   ) {
     emit(state.copyWith(category: event.category, error: ''));
 
-    // A tab whose headlines are cached and fresh is already on screen — the tap
-    // has nothing left to ask for.
+    // A tab with fresh cached headlines has nothing left to ask for.
     if (state.isStale(event.category)) {
       add(FetchNewsEvent(category: event.category));
     }

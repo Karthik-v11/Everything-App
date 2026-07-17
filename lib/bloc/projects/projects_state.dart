@@ -3,9 +3,8 @@ part of 'projects_bloc.dart';
 /// [PendingDelete] is a project the user has asked to delete, and what deleting it
 /// would take with it (Requirement 10.4).
 ///
-/// It exists as state rather than as a value passed to a dialog because the counts
-/// come from the database, and a widget that queries the database is a widget doing
-/// the repository's job. The screen renders a confirmation whenever this is present.
+/// It is state rather than a value passed to a dialog because the counts come from
+/// the database. The screen renders a confirmation whenever this is present.
 class PendingDelete extends Equatable {
   const PendingDelete({required this.project, required this.contents});
 
@@ -24,9 +23,8 @@ class PendingDelete extends Equatable {
 
 /// [ProjectsState] holds everything the Projects screens render.
 ///
-/// [projects] is the complete flat list. The tree — roots, children, breadcrumbs,
-/// and the descendants a delete would cascade to — is derived from it by [tree], so
-/// nothing on screen can disagree with the parent ids in the rows.
+/// [projects] is the complete flat list; the tree — roots, children, breadcrumbs and
+/// delete cascades — is derived from it by [tree].
 class ProjectsState extends Equatable {
   const ProjectsState({
     this.isLoading = false,
@@ -46,17 +44,13 @@ class ProjectsState extends Equatable {
   /// The delete awaiting the user's confirmation, or null.
   final PendingDelete? pendingDelete;
 
-  /// [tree] is the project hierarchy, rebuilt from [projects].
-  ///
-  /// Recomputed on read rather than cached: it is a few map insertions over a list
-  /// that is tens of items long at most, and a cached tree is one more thing that
-  /// can be stale.
+  /// [tree] is the project hierarchy, rebuilt from [projects]. Recomputed on read
+  /// rather than cached — a few map insertions over a list tens of items long.
   ProjectTree get tree => ProjectTree(projects);
 
-  /// [roots] are the top-level projects — what the Library hub lists.
-  ///
-  /// Under a search, the flat matching list is what the user wants: someone typing
-  /// a name is looking for a project, not for the branch it happens to hang from.
+  /// [roots] are the top-level projects the Library hub lists. Under a search it is
+  /// the flat matching list instead — a name search wants the project, not its
+  /// branch.
   List<Project> get roots {
     if (query.isNotBlank) return visibleProjects;
     return tree.roots;

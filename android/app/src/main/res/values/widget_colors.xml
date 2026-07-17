@@ -20,4 +20,13 @@
     <color name="widget_text">#F5F5F5</color>
     <color name="widget_text_dim">#9E9E9E</color>
     <color name="widget_overdue">#E53935</color>
+
+    <!-- The four priority colours, restated from AppColors.priority* for the same
+         reason as the rest of this file. They colour the task marker rather than a
+         separate badge: the ring is already in the row, so priority costs no width
+         and stays legible at the smallest widget size. -->
+    <color name="widget_priority_low">#4FC3C7</color>
+    <color name="widget_priority_medium">#FFB300</color>
+    <color name="widget_priority_high">#F5622D</color>
+    <color name="widget_priority_critical">#E8453C</color>
 </resources>

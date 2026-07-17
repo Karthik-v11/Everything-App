@@ -2,6 +2,10 @@
 <!--
   The quick-add launcher (Requirement 13). Four routes into the app and no data,
   so it never goes stale and publishes nothing.
+
+  Each action is an icon over its label in a tappable cell. The @id sits on the
+  cell, not the icon, so the whole pill is the target rather than a 20dp glyph —
+  QuickAddWidgetProvider binds the same ids either way.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
@@ -9,58 +13,127 @@
     android:layout_height="match_parent"
     android:orientation="horizontal"
     android:background="@drawable/widget_background"
-    android:padding="12dp"
+    android:padding="8dp"
+    android:baselineAligned="false"
     android:gravity="center">
 
-    <TextView
+    <LinearLayout
         android:id="@+id/action_task"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:layout_margin="4dp"
+        android:layout_margin="3dp"
         android:background="@drawable/widget_pill"
+        android:orientation="vertical"
         android:gravity="center"
-        android:text="@string/widget_task"
-        android:contentDescription="@string/widget_add_task"
-        android:textColor="@color/widget_text"
-        android:textSize="12sp" />
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:contentDescription="@string/widget_add_task">
 
-    <TextView
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_widget_task"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="@string/widget_task"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_text"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/action_expense"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:layout_margin="4dp"
+        android:layout_margin="3dp"
         android:background="@drawable/widget_pill"
+        android:orientation="vertical"
         android:gravity="center"
-        android:text="@string/widget_expense"
-        android:contentDescription="@string/widget_add_expense"
-        android:textColor="@color/widget_text"
-        android:textSize="12sp" />
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:contentDescription="@string/widget_add_expense">
 
-    <TextView
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_widget_expense"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="@string/widget_expense"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_text"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/action_ai"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:layout_margin="4dp"
+        android:layout_margin="3dp"
         android:background="@drawable/widget_pill"
+        android:orientation="vertical"
         android:gravity="center"
-        android:text="@string/widget_ask"
-        android:contentDescription="@string/widget_ask"
-        android:textColor="@color/widget_accent"
-        android:textSize="12sp" />
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:contentDescription="@string/widget_ask">
 
-    <TextView
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_widget_ask"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="@string/widget_ask"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_accent"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/action_search"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:layout_margin="4dp"
+        android:layout_margin="3dp"
         android:background="@drawable/widget_pill"
+        android:orientation="vertical"
         android:gravity="center"
-        android:text="@string/widget_search"
-        android:contentDescription="@string/widget_search"
-        android:textColor="@color/widget_text"
-        android:textSize="12sp" />
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:contentDescription="@string/widget_search">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_widget_search"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="@string/widget_search"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_text"
+            android:textSize="11sp" />
+    </LinearLayout>
 </LinearLayout>

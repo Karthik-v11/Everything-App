@@ -2,11 +2,10 @@ import 'package:everything_app/core/utils/extensions.dart';
 import 'package:everything_app/core/utils/responsive.dart';
 import 'package:flutter/material.dart';
 
-/// [OptionPill] is a compact button that is both the control and the readout: it
-/// shows the value it sets. It is what keeps the task and transaction sheets to a
-/// single row of options under the field.
+/// A compact button that is both the control and the readout: it shows the value
+/// it sets.
 ///
-/// [isSet] tints the pill in [accent] to say the value is the user's rather than
+/// [isSet] tints the pill in [accent] to mark the value as the user's rather than
 /// the default.
 class OptionPill extends StatelessWidget {
   const OptionPill({
@@ -24,6 +23,10 @@ class OptionPill extends StatelessWidget {
   final Color accent;
   final VoidCallback? onTap;
 
+  /// Kept as a minimum rather than a fixed height so the pill sizes itself in an
+  /// unbounded parent (a [Wrap]) and still fills a fixed-height row.
+  static const double minHeight = 38;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -35,8 +38,11 @@ class OptionPill extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        // No `alignment`: it would make the pill fill the width it is offered,
+        // which in a [Wrap] is the whole row. The Row below centres the content
+        // within [minHeight] on its own.
+        constraints: const BoxConstraints(minHeight: minHeight),
         decoration: BoxDecoration(
           color: isSet ? accent.withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
@@ -89,20 +95,12 @@ class PillDivider<T> extends PillEntry<T> {
   const PillDivider();
 }
 
-/// [OptionPillMenu] is an [OptionPill] that opens a menu of [entries] over itself.
+/// An [OptionPill] that opens a menu of [entries] over itself.
 ///
-/// It is built on [MenuAnchor] rather than [PopupMenuButton], and that is the
-/// whole point of it. A [PopupMenuButton] shows its menu by **pushing a route**,
-/// and pushing a route hands the focus scope to the new one — which closes the
-/// keyboard. Both sheets that use this widget open with the caret already in a
-/// field, so setting a category or an account from the row of pills underneath
-/// used to dismiss the keyboard and leave the user to tap the field again to
-/// carry on typing.
-///
-/// [MenuAnchor] renders into the [Overlay] instead. No route is pushed, nothing
-/// requests focus (its menu only takes focus for keyboard traversal), so the
-/// field keeps the caret and the keyboard stays up through as many selections as
-/// the user cares to make.
+/// Must stay on [MenuAnchor], not [PopupMenuButton]: the latter shows its menu by
+/// pushing a route, which hands over the focus scope and closes the keyboard. The
+/// sheets using this open with the caret in a field, so [MenuAnchor]'s overlay is
+/// what keeps the keyboard up across selections.
 class OptionPillMenu<T> extends StatelessWidget {
   const OptionPillMenu({
     required this.icon,
@@ -124,14 +122,19 @@ class OptionPillMenu<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MenuAnchor(
-      // Clear of the pill rather than over it, so the value being changed stays
-      // visible while the menu that changes it is open.
+      // Offset clear of the pill so the value being changed stays visible while
+      // the menu is open.
       alignmentOffset: const Offset(0, 4),
       menuChildren: [
         for (final entry in entries)
           switch (entry) {
             PillDivider<T>() => const Divider(height: 1),
-            PillOption<T>(:final value, :final label, :final icon, :final iconColor) =>
+            PillOption<T>(
+              :final value,
+              :final label,
+              :final icon,
+              :final iconColor,
+            ) =>
               MenuItemButton(
                 leadingIcon: icon == null
                     ? null

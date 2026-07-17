@@ -8,12 +8,9 @@ abstract class StorageEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// [ReadStorageEvent] measures the app's storage (Requirement 25.4).
-///
-/// Dispatched when the Storage section is opened and when the user pulls to
-/// refresh it — never on a write, because the measurement is a `dbstat` scan and
-/// two directory walks and nothing is reading the result until the section is on
-/// screen.
+/// [ReadStorageEvent] measures the app's storage (Requirement 25.4). Dispatched
+/// on section open and pull-to-refresh — never on a write: the measurement is a
+/// `dbstat` scan plus two directory walks.
 class ReadStorageEvent extends StorageEvent {
   const ReadStorageEvent();
 }

@@ -7,14 +7,8 @@ import 'package:everything_app/data/models/weather.dart';
 
 /// [WeatherService] reads the Weather_Service (Requirement 3.2).
 ///
-/// One of the app's only two networked services — everything else is served from
-/// the local database. It follows CLAUDE.md §5 to the letter: an injected [Dio],
-/// its own instance, ten-second timeouts, the client interceptor, and a
-/// [JsonResponse] out of every method so that a caller cannot tell a network
-/// source from a local one.
-///
-/// There is no auth interceptor: OpenWeatherMap authenticates with a query-string
-/// key, not a bearer token.
+/// No auth interceptor: OpenWeatherMap authenticates with a query-string key,
+/// not a bearer token.
 class WeatherService {
   WeatherService({required this.dio}) {
     dio.options
@@ -33,9 +27,8 @@ class WeatherService {
 
   final Dio dio;
 
-  /// [_query] is what every call sends: the place, the key, and metric units — so
-  /// that Celsius is the API's job rather than a conversion the app has to
-  /// remember to do.
+  /// [_query] is what every call sends. Metric units make Celsius the API's job
+  /// rather than a conversion the app has to remember.
   Map<String, String> _query(String city) => <String, String>{
         'q': city,
         'appid': kWeatherAPIKey,
@@ -113,9 +106,8 @@ class WeatherService {
     }
   }
 
-  /// The app ships without API keys, and a build with none is a working app minus
-  /// its weather — not a broken one. Saying so beats a timeout the user cannot
-  /// act on.
+  /// The app ships without API keys; a build with none is a working app minus its
+  /// weather. Saying so beats a timeout the user cannot act on.
   JsonResponse get _missingKey => JsonResponse.failure(
         statusCode: 401,
         message: 'Error: add WEATHER_API_KEY to .env to see the weather.',

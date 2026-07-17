@@ -8,10 +8,8 @@ abstract class AiEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// [AiOpened] resets the sheet to a clean session.
-///
-/// The bloc is app-scoped, so without this the sheet would reopen still showing
-/// the last session's results, answer or preview.
+/// [AiOpened] resets the sheet to a clean session. The bloc is app-scoped, so
+/// without this the sheet reopens showing the last session's results.
 class AiOpened extends AiEvent {
   const AiOpened();
 }
@@ -38,10 +36,9 @@ class AiModeSelected extends AiEvent {
   List<Object?> get props => [mode];
 }
 
-/// [AiSubmitted] runs the current mode's action over [input].
-///
-/// It carries the field's live text rather than reading the debounced state, so a
-/// fast "type and send" never acts on a line one keystroke behind.
+/// [AiSubmitted] runs the current mode's action over [input]. It carries the
+/// field's live text rather than the debounced state, so a fast "type and send"
+/// never acts on a line one keystroke behind.
 class AiSubmitted extends AiEvent {
   const AiSubmitted({required this.input});
 
@@ -52,10 +49,8 @@ class AiSubmitted extends AiEvent {
 }
 
 /// [ConfigureAiEvent] sets the confidence threshold the assistant acts at,
-/// pushed by [SettingsBloc] (Requirement 25.3).
-///
-/// The assistant does not read the setting: it is told, like every other
-/// cross-bloc configuration in this app (CLAUDE.md §4.4).
+/// pushed by [SettingsBloc] (Requirement 25.3). The assistant is told, never
+/// reads it — cross-bloc configuration goes by event dispatch (CLAUDE.md §4.4).
 class ConfigureAiEvent extends AiEvent {
   const ConfigureAiEvent({required this.confidence});
 

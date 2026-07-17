@@ -86,6 +86,8 @@ class _TransactionsPageState extends State<TransactionsPage> {
             onPressed: () => showTransactionSheet(context),
             icon: const Icon(Icons.add_rounded),
             tooltip: 'Add transaction',
+                                  color: context.colors.primary,
+
           ),
         ],
       ),

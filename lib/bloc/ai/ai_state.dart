@@ -2,11 +2,8 @@ part of 'ai_bloc.dart';
 
 /// [AiState] is everything the AI sheet renders (Requirement 16).
 ///
-/// Style A: it accumulates several independent slices — the chosen mode, the live
-/// preview of what will be created, search results, an answer — that different
-/// events touch separately, and it holds them for the life of the open sheet. It
-/// is not persisted: an assistant session starts fresh each time the dock is
-/// opened, which is what [AiOpened] resets it to.
+/// Not persisted: a session starts fresh each time the dock is opened
+/// ([AiOpened]).
 class AiState extends Equatable {
   const AiState({
     this.mode = AiIntent.task,
@@ -41,9 +38,8 @@ class AiState extends Equatable {
   /// A transient failure, shown as an error snack and cleared at the next action.
   final String error;
 
-  /// A gentle prompt shown inline when the parse was too weak to act on —
-  /// "What should I call this task?" (Requirement 16.7). Not an error: nothing has
-  /// gone wrong, the assistant just needs one more word.
+  /// Inline prompt shown when the parse was too weak to act on
+  /// (Requirement 16.7). Not an error — the assistant needs one more detail.
   final String clarification;
 
   /// The live reading of the input in Task / Expense mode, shown as a one-line
@@ -58,8 +54,8 @@ class AiState extends Equatable {
   final ParsedVaultInput? vaultPreview;
   final ParsedProjectInput? projectPreview;
 
-  /// Search results (Search mode) and the answer text (Ask mode) — the two
-  /// read-only outcomes the sheet keeps on screen rather than closing on.
+  /// Search results (Search mode) and answer text (Ask mode) — read-only
+  /// outcomes the sheet keeps on screen rather than closing on.
   final List<SearchResult> results;
   final String answer;
 
@@ -68,13 +64,9 @@ class AiState extends Equatable {
   final String createdMessage;
 
   /// The score a parse must reach before the assistant acts rather than asks
-  /// (Requirements 16.7, 25.3).
-  ///
-  /// Owned and persisted by [SettingsBloc], pushed here by
-  /// [ConfigureAiEvent], and read on the *next* parse — which is what makes a
-  /// changed setting apply to subsequent interactions without the sheet needing
-  /// to be reopened. It survives [AiOpened], unlike everything else here: it is
-  /// the user's setting, not part of a session.
+  /// (Requirements 16.7, 25.3). Owned and persisted by [SettingsBloc], pushed
+  /// here by [ConfigureAiEvent], read on the next parse. Survives [AiOpened] —
+  /// it is the user's setting, not session state.
   final double confidence;
 
   bool get hasResults => results.isNotEmpty;

@@ -10,17 +10,13 @@ part 'storage_state.dart';
 
 /// [StorageBloc] drives the Storage Usage section (Requirement 25.4).
 ///
-/// **Style B**: one focused async action with no accumulated state — the usage is
-/// read, and the state is exactly one of loading, loaded or failed. There is
-/// nothing to keep across events and nothing to persist: a remembered figure is a
-/// figure that is wrong the moment anything is written, and this is the one screen
-/// where the whole point is that the number is current.
+/// Nothing is persisted: a remembered figure is wrong the moment anything is
+/// written.
 ///
-/// It is deliberately **not** driven off the DAO streams the way `HomeWidgetBloc`
-/// is. Measuring means a `dbstat` scan and two directory walks, and doing that on
-/// every write in the app — to keep a section fresh that is only visible when the
-/// user has scrolled to the bottom of Settings — would be work nobody asked for.
-/// It is read when the section is opened, and re-read when the user asks.
+/// Deliberately **not** driven off the DAO streams the way `HomeWidgetBloc` is —
+/// measuring costs a `dbstat` scan and two directory walks, too much to repeat on
+/// every write for a section only visible at the bottom of Settings. Read on open,
+/// re-read on request.
 class StorageBloc extends Bloc<StorageEvent, StorageState> {
   StorageBloc({required this.repository}) : super(const StorageInitial()) {
     on<ReadStorageEvent>(_onReadStorageEvent);

@@ -7,58 +7,61 @@ import 'package:intl/intl.dart';
 
 /// [HomeWidgetTask] is one row on the tasks widget.
 ///
-/// A deliberately thin projection of [Task]: a title, whether it is done, and a
-/// due label. The home screen has no room for anything else, and a widget that
-/// carried the whole task would put notes, subtasks and reminders into a shared
-/// container that another process can read (see [HomeWidgetPayload]).
+/// A thin projection of [Task]: carrying the whole task would put notes,
+/// subtasks and reminders into a shared container another process can read.
 class HomeWidgetTask extends Equatable {
   const HomeWidgetTask({
     required this.id,
     required this.title,
-    required this.isCompleted,
     required this.isOverdue,
+    required this.priority,
     this.dueLabel = '',
   });
 
   final String id;
   final String title;
-  final bool isCompleted;
   final bool isOverdue;
+
+  /// The task's priority as its enum name — `low`, `medium`, `high`,
+  /// `critical` — which the native side maps to a marker colour.
+  ///
+  /// The name rather than the colour: a hex string here would mean the widget's
+  /// palette were decided in Dart and the rest of it in `widget_colors.xml`, and
+  /// the native side cannot read `AppColors` anyway (see
+  /// `EverythingWidgetProvider`). An unrecognised name draws the medium marker
+  /// rather than nothing.
+  final String priority;
+
   final String dueLabel;
 
+  /// There is no `isCompleted`: [HomeWidgetPayload.build] no longer publishes
+  /// completed tasks, so the field could only ever be `false`.
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
-        'isCompleted': isCompleted,
         'isOverdue': isOverdue,
+        'priority': priority,
         'dueLabel': dueLabel,
       };
 
   @override
-  List<Object?> get props => [id, title, isCompleted, isOverdue, dueLabel];
+  List<Object?> get props => [id, title, isOverdue, priority, dueLabel];
 }
 
 /// [HomeWidgetPayload] is everything the home screen widgets render
 /// (Requirement 13).
 ///
-/// **It is built pure and it ships formatted strings, both on purpose.**
+/// Built pure — a function of the data and a clock, like `NotificationPlan` — so
+/// what a widget will show is assertable without putting one on a home screen.
 ///
-/// Pure, because it is the same shape as Phase 4's `NotificationPlan`: a function
-/// of the data and a clock, so what a widget will show is asserted in a unit test
-/// rather than by putting a widget on a home screen and waiting half an hour.
+/// It ships **formatted** strings so the money rule lives in one place: shipping
+/// `expenseMinor` would make Kotlin and Swift each reimplement
+/// `Helpers.formatMoney` (minor units, `en_IN` lakh/crore grouping, symbol), and
+/// the home screen could then disagree with the Finance tab.
 ///
-/// Formatted, because the alternative is worse than it looks. If this shipped
-/// `expenseMinor: 1500000`, then Kotlin and Swift would each have to reimplement
-/// `Helpers.formatMoney` — minor-unit division, the `en_IN` lakh/crore grouping,
-/// the currency symbol — and three implementations of one rule is three chances
-/// for the home screen to disagree with the Finance tab about what the month
-/// cost. The native side draws strings it is handed and owns no formatting rule
-/// at all.
-///
-/// [maxTasks] is what is written, not what is drawn: the small widget shows three
-/// rows and the large one shows eight, and which size the user placed is known
-/// only to the native code. Writing the longest list once and letting each size
-/// truncate is one write instead of three.
+/// [maxTasks] is what is written, not what is drawn: which widget size the user
+/// placed is known only to the native code, so the longest list is written once
+/// and each size truncates it.
 class HomeWidgetPayload extends Equatable {
   const HomeWidgetPayload({
     required this.tasks,
@@ -72,8 +75,14 @@ class HomeWidgetPayload extends Equatable {
 
   static const int maxTasks = 8;
 
+  /// Today's open work, most urgent first. Completed tasks are never in here —
+  /// see [_isForToday].
   final List<HomeWidgetTask> tasks;
+
+  /// How many tasks are in [tasks] before the [maxTasks] cap — the widget's
+  /// title counts all of today's open work, not the rows that fit.
   final int openCount;
+
   final int completedCount;
   final int overdueCount;
 
@@ -83,8 +92,8 @@ class HomeWidgetPayload extends Equatable {
   /// What the figure is — `Spent in July`.
   final String spentCaption;
 
-  /// When this was built, for the widget's footer — the honest answer to "is this
-  /// stale?", which on a 30-minute refresh cycle the user genuinely needs.
+  /// When this was built, for the widget's footer — the refresh cycle is 30
+  /// minutes, so the user needs to know how stale the figures are.
   final String updatedAtLabel;
 
   /// [build] projects the app's data onto the home screen.
@@ -109,13 +118,13 @@ class HomeWidgetPayload extends Equatable {
           HomeWidgetTask(
             id: task.id,
             title: task.title,
-            isCompleted: task.isCompleted,
             isOverdue: _isOverdue(task, now),
+            priority: task.priority.name,
             dueLabel: _dueLabelOf(task, now),
           ),
       ],
-      openCount: todays.where((task) => !task.isCompleted).length,
-      completedCount: todays.where((task) => task.isCompleted).length,
+      openCount: todays.length,
+      completedCount: _completedToday(tasks, today).length,
       overdueCount: tasks.where((task) => _isOverdue(task, now)).length,
       spentLabel: Helpers.formatMoney(expenseMinor, compact: true),
       spentCaption: 'Spent in ${DateFormat.MMMM().format(now)}',
@@ -123,44 +132,57 @@ class HomeWidgetPayload extends Equatable {
     );
   }
 
-  /// [_isOverdue] is [Task.isOverdue]'s rule, evaluated against [now].
+  /// [_isOverdue] is [Task.isOverdue]'s rule against [now], not `Task.isOverdue`
+  /// itself: that getter reads the wall clock, which would stop this being a pure
+  /// function of (tasks, now) and make it unassertable against an injected clock.
   ///
-  /// `Task.isOverdue` reads `DateTime.now()` itself, which is right for a widget
-  /// on a screen — it is asking "is this late *right now*" — and wrong here.
-  /// Calling it would make this "pure function of (tasks, now)" quietly read the
-  /// wall clock, so the payload could not be asserted against an injected clock
-  /// and a test written in the past would report every task overdue. This mirrors
-  /// `NotificationPlan`, which compares against its injected `now` for the same
-  /// reason.
-  ///
-  /// The condition is `pending`, not `!isCompleted`: a **cancelled** task is not
-  /// late, it is abandoned, and Task's own rule says so.
+  /// The condition is `pending`, not `!isCompleted`: a cancelled task is not late.
   static bool _isOverdue(Task task, DateTime now) =>
       task.status == TaskStatus.pending &&
       task.dueDate != null &&
       task.dueDate!.isBefore(now);
 
-  /// [_isForToday] is what the widget calls today's work: anything due today, and
-  /// anything already overdue.
+  /// [_isForToday] is what the widget calls today's work: anything still open and
+  /// due today, and anything already overdue — a widget showing only today's due
+  /// items would go empty on the day the user is furthest behind.
   ///
-  /// Overdue tasks are included deliberately — a widget that showed only today's
-  /// due items would go empty and calm on the exact day the user is furthest
-  /// behind, which is when it most needs to say something.
+  /// Completed tasks are **not** today's work. The widget is a list of what is
+  /// left, and a finished task sitting in four rows of a home screen is four rows
+  /// not showing the next thing. What was done today is still counted, in
+  /// [completedCount], because a count is a fact about the day rather than a row
+  /// competing for the space.
   static bool _isForToday(Task task, DateTime today) {
+    if (task.isCompleted) return false;
+
     final due = task.dueDate;
     if (due == null) return false;
 
     final dueDay = DateTime(due.year, due.month, due.day);
-    if (dueDay == today) return true;
-
-    return dueDay.isBefore(today) && !task.isCompleted;
+    return dueDay == today || dueDay.isBefore(today);
   }
 
-  /// [_byUrgency] puts overdue first, then open, then what is already done —
-  /// which is the order the list is useful in at a glance.
-  static int _byUrgency(Task a, Task b, DateTime now) {
-    if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
+  /// [_completedToday] is what [_isForToday] filtered out, kept for the count.
+  ///
+  /// A task completed today is one whose due day was today — the model has no
+  /// completion timestamp, so the due date is the only day it can be attributed
+  /// to, and reading it any other way would be inventing data.
+  static Iterable<Task> _completedToday(List<Task> tasks, DateTime today) => [
+        for (final task in tasks)
+          if (task.isCompleted &&
+              task.dueDate != null &&
+              DateTime(
+                    task.dueDate!.year,
+                    task.dueDate!.month,
+                    task.dueDate!.day,
+                  ) ==
+                  today)
+            task,
+      ];
 
+  /// [_byUrgency] puts overdue first, then the rest by when they are due — which
+  /// is the order the list is useful in at a glance. Completion no longer sorts
+  /// anything: [_isForToday] has already dropped every completed task.
+  static int _byUrgency(Task a, Task b, DateTime now) {
     final aOverdue = _isOverdue(a, now);
     final bOverdue = _isOverdue(b, now);
     if (aOverdue != bOverdue) return aOverdue ? -1 : 1;
@@ -184,11 +206,9 @@ class HomeWidgetPayload extends Equatable {
 
   /// [toWidgetData] is the flat key/value map `home_widget` writes.
   ///
-  /// The task list goes over as one JSON string rather than as
-  /// `task_0_title`, `task_1_title`, … because indexed keys have to be *cleared*
-  /// when the list shrinks: go from five tasks to two, and rows three to five
-  /// would still be sitting in the shared container for the native side to draw.
-  /// One key that is rewritten in full each time cannot go stale in part.
+  /// The task list goes over as one JSON string rather than indexed keys
+  /// (`task_0_title`, …), which would have to be cleared when the list shrinks or
+  /// the native side would draw rows left over from a longer list.
   Map<String, String> toWidgetData() => {
         'tasks': jsonEncode([for (final task in tasks) task.toJson()]),
         'openCount': '$openCount',

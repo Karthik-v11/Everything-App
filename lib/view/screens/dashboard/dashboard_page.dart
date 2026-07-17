@@ -1,3 +1,5 @@
+import 'package:clock/clock.dart';
+import 'package:everything_app/bloc/briefing/briefing_bloc.dart';
 import 'package:everything_app/bloc/budget/budget_bloc.dart';
 import 'package:everything_app/bloc/finance/finance_bloc.dart';
 import 'package:everything_app/bloc/news/news_bloc.dart';
@@ -8,65 +10,63 @@ import 'package:everything_app/core/route/routes.dart';
 import 'package:everything_app/core/utils/extensions.dart';
 import 'package:everything_app/core/utils/helpers.dart';
 import 'package:everything_app/core/utils/responsive.dart';
+import 'package:everything_app/data/entity/ai_prompt.dart';
+import 'package:everything_app/data/entity/briefing_facts.dart';
 import 'package:everything_app/data/models/article.dart';
 import 'package:everything_app/data/models/budget.dart';
 import 'package:everything_app/data/models/weather.dart';
 import 'package:everything_app/view/screens/dashboard/city_sheet.dart';
+import 'package:everything_app/view/screens/dashboard/news_category_sheet.dart';
 import 'package:everything_app/view/screens/tasks/task_sheet.dart';
-import 'package:everything_app/view/widgets/task_card.dart';
+import 'package:everything_app/view/widgets/briefing_card.dart';
+import 'package:everything_app/view/widgets/completing_task_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// How many of today's tasks the Dashboard lists before "See All".
-const int _kTaskPreviewCount = 4;
+/// How many of today's tasks the Dashboard lists before "Show All".
+const int _kTaskPreviewCount = 3;
 
-/// How many headlines the news section shows.
-const int _kNewsCount = 6;
+/// How many headlines the Top Stories section previews.
+const int _kNewsCount = 10;
 
-/// [DashboardPage] is the day at a glance (Requirement 3).
-///
-/// It is the one screen that owns no data. Every figure on it belongs to a module
-/// that already owns it — [TasksBloc] has today's work, [FinanceBloc] the month's
-/// money, [BudgetBloc] the limit it is measured against — and the Dashboard is
-/// where the four are put side by side. That is why it is built after them: a
-/// summary of nothing is a mock.
-///
-/// The two blocs it does bring, [WeatherBloc] and [NewsBloc], are the app's only
-/// networked ones. Both are hydrated, so what they last fetched is on screen
-/// before the first request is made and stays there when it fails — which is the
-/// whole of the offline behaviour Requirement 3.11 asks for (see [_StaleBanner]).
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
 
-  /// [_refresh] is the pull gesture: the two things on this screen that can be out
-  /// of date, asked again. Tasks and money arrive on a database stream and are
-  /// never stale.
   Future<void> _refresh(BuildContext context) async {
     context.read<WeatherBloc>().add(const FetchWeatherEvent());
     context.read<NewsBloc>().add(const FetchNewsEvent());
+    context.read<BriefingBloc>().add(const RefreshBriefingEvent());
   }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       bottom: false,
+      top: false,
       child: RefreshIndicator(
         onRefresh: () => _refresh(context),
-        child: ListView(
-          padding: responsivePadding(context).copyWith(top: 8, bottom: 140),
-          children: const [
-            _Greeting(),
-            Gap(20),
-            _DateAndWeather(),
-            Gap(10),
-            _StaleBanner(),
-            _TodayTasks(),
-            Gap(16),
-            _FinanceSummary(),
-            Gap(28),
-            _News(),
+        child: Stack(
+          children: [
+            const _GreetingGlow(),
+            ListView(
+              padding: responsivePadding(context).copyWith(top: 32, bottom: 140),
+              children: const [
+                _Greeting(),
+                Gap(14),
+                _DateAndWeather(),
+                Gap(16),
+                _StaleBanner(),
+                _Briefing(),
+                Gap(28),
+                _Agenda(),
+                Gap(16),
+                _MoneyAndUpcoming(),
+                Gap(28),
+                _TopStories(),
+              ],
+            ),
           ],
         ),
       ),
@@ -74,11 +74,38 @@ class DashboardPage extends StatelessWidget {
   }
 }
 
-/// [_Greeting] is the serif salutation (Requirement 3.1).
+/// [_GreetingGlow] is the decorative radial wash behind the greeting.
 ///
-/// The name comes from [SettingsBloc], which owns it. A *widget* reading another
-/// module's bloc is the point of this screen; what is forbidden is a **bloc**
-/// reading another bloc's state (CLAUDE.md §4.4).
+/// Uses [ColorScheme.primary] because accent is a user setting. [IgnorePointer]
+/// so it never eats the pull-to-refresh gesture it sits under.
+class _GreetingGlow extends StatelessWidget {
+  const _GreetingGlow();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return IgnorePointer(
+      child: SizedBox(
+        height: 280,
+        width: double.infinity,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(-0.4, -1),
+              radius: 1.1,
+              colors: [
+                colors.primary.withValues(alpha: 0.18),
+                colors.primary.withValues(alpha: 0),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Greeting extends StatelessWidget {
   const _Greeting();
 
@@ -93,21 +120,17 @@ class _Greeting extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                // An unnamed greeting is still a greeting: the app works perfectly
-                // well for someone who never opened Settings.
                 name.isEmpty
-                    ? '${Helpers.greeting()}!'
-                    : '${Helpers.greeting()}, $name!',
+                    ? '${Helpers.greeting(at: clock.now())}!'
+                    : '${Helpers.greeting(at: clock.now())}, $name!',
                 style: context.texts.headlineSmall,
               ),
             ),
             const Gap(8),
-            // The avatar is the way into Settings, and Settings is the only place
-            // the name can be set — which is what makes an unnamed greeting
-            // self-explanatory rather than a defect.
-            IconButton.filledTonal(
+            IconButton(
               onPressed: () => context.pushNamed(settingsRoute),
-              icon: const Icon(Icons.person_outline_rounded),
+              icon: const Icon(Icons.person_rounded),
+              color: Colors.white,
               tooltip: 'Settings',
             ),
           ],
@@ -117,48 +140,46 @@ class _Greeting extends StatelessWidget {
   }
 }
 
-/// [_DateAndWeather] is the date line and the weather pill (Requirements 3.1, 3.2).
+/// [_DateAndWeather] is the two outlined pills (Requirements 3.1, 3.2).
+///
+/// Outlined, not filled: these are labels, not buttons competing with the AI orb.
 class _DateAndWeather extends StatelessWidget {
   const _DateAndWeather();
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.colors;
-
     return Row(
       children: [
+        // The date takes the larger share: `15th September, Wednesday` is the
+        // longest this line gets and mono is a wide face, so the common case
+        // fits without ellipsing.
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Date',
-                style: context.texts.labelMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
+          flex: 9,
+          child: _Pill(
+            // No onTap: the date has nowhere to go, but keeps the pill shape so
+            // the row reads as a pair.
+            child: Text(
+              clock.now().dashboardDate,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.texts.labelSmall?.copyWith(
+                color: context.colors.onSurface,
               ),
-              const Gap(2),
-              Text(
-                DateTime.now().dashboardDate,
-                style: context.texts.titleLarge,
-              ),
-            ],
+            ),
           ),
         ),
-        const Gap(12),
-        const _WeatherPill(),
+        const Gap(10),
+        const Expanded(flex: 8, child: _WeatherPill()),
       ],
     );
   }
 }
 
-/// [_WeatherPill] is the amber pill of the reference UI (Requirement 3.2).
+/// [_WeatherPill] is the outlined weather pill: `Bengaluru, 27° C`
+/// (Requirement 3.2).
 ///
-/// Three states, no spinner: a temperature, an invitation to say where the user
-/// is, and — while the very first fetch is in flight — a dash. A spinner on
-/// something this small is a flicker, and it would replace the one thing the user
-/// is looking at the pill to read.
+/// Three states, no spinner: a temperature, a "set location" prompt, or a dash
+/// while the first fetch is in flight. A spinner this small only flickers.
 class _WeatherPill extends StatelessWidget {
   const _WeatherPill();
 
@@ -177,14 +198,18 @@ class _WeatherPill extends StatelessWidget {
               children: [
                 Icon(
                   Icons.location_on_outlined,
-                  size: 18,
-                  color: colors.onPrimary,
+                  size: 16,
+                  color: colors.onSurfaceVariant,
                 ),
                 const Gap(6),
-                Text(
-                  'Set location',
-                  style: context.texts.labelLarge?.copyWith(
-                    color: colors.onPrimary,
+                Flexible(
+                  child: Text(
+                    'Set location',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.texts.labelSmall?.copyWith(
+                      color: colors.onSurface,
+                    ),
                   ),
                 ),
               ],
@@ -197,24 +222,29 @@ class _WeatherPill extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                (weather?.condition ?? WeatherCondition.unknown).icon,
-                size: 20,
-                color: colors.onPrimary,
-              ),
-              const Gap(8),
-              Text(
-                '${weather?.temperature ?? '—'}C',
-                style: context.texts.titleMedium?.copyWith(
-                  color: colors.onPrimary,
-                  fontWeight: FontWeight.w700,
+              // Only the city ellipses: a long name is what runs the pill out
+              // of room, and the temperature is what the pill exists to show.
+              Flexible(
+                child: Text(
+                  state.city,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.texts.labelSmall?.copyWith(
+                    color: colors.onSurface,
+                  ),
                 ),
               ),
-              const Gap(2),
+              Text(
+                ', ${weather?.temperature ?? '—'} C',
+                style: context.texts.labelSmall?.copyWith(
+                  color: colors.onSurface,
+                ),
+              ),
+              const Gap(6),
               Icon(
-                Icons.chevron_right_rounded,
+                (weather?.condition ?? WeatherCondition.unknown).icon,
                 size: 18,
-                color: colors.onPrimary,
+                color: colors.onSurfaceVariant,
               ),
             ],
           ),
@@ -224,25 +254,92 @@ class _WeatherPill extends StatelessWidget {
   }
 }
 
+/// [_Pill] is the outlined capsule the date and weather share.
+///
+/// [onTap] is optional: a pill with nowhere to go renders without an [InkWell]
+/// rather than with a dead one.
 class _Pill extends StatelessWidget {
-  const _Pill({required this.child, required this.onTap});
+  const _Pill({required this.child, this.onTap});
 
   final Widget child;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    final content = Container(
+      height: 44,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: child,
+    );
+
+    final tap = onTap;
+    if (tap == null) return content;
+
     return Material(
-      color: context.colors.primary,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
-        onTap: onTap,
+        onTap: tap,
         borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: child,
-        ),
+        child: content,
       ),
+    );
+  }
+}
+
+class _Briefing extends StatelessWidget {
+  const _Briefing();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<TasksBloc, TasksState>(
+      buildWhen: (previous, current) => previous.tasks != current.tasks,
+      builder: (context, tasks) {
+        return BlocBuilder<WeatherBloc, WeatherState>(
+          buildWhen: (previous, current) =>
+              previous.weather != current.weather ||
+              previous.city != current.city,
+          builder: (context, weather) {
+            return BlocBuilder<NewsBloc, NewsState>(
+              buildWhen: (previous, current) =>
+                  previous.visibleArticles != current.visibleArticles,
+              builder: (context, news) {
+                final todayTasks = tasks.todayTasks;
+
+                final facts = BriefingFacts(
+                  now: clock.now(),
+                  city: weather.hasCity ? weather.city : null,
+                  weather: weather.weather,
+                  taskCount: todayTasks.length,
+                  overdueCount: tasks.overdueCount,
+                  taskTitles: [
+                    for (final task in todayTasks.take(AiPrompt.maxBriefingTasks))
+                      task.title,
+                  ],
+                  headlines: [
+                    for (final article
+                        in news.visibleArticles.take(AiPrompt.maxBriefingHeadlines))
+                      article.title,
+                  ],
+                );
+
+                context.read<BriefingBloc>().add(
+                      BriefingFactsChanged(facts: facts),
+                    );
+
+                return const BriefingCard();
+              },
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -250,11 +347,9 @@ class _Pill extends StatelessWidget {
 /// [_StaleBanner] is the only thing the Dashboard says about being offline
 /// (Requirement 3.11).
 ///
-/// Cached weather and news are otherwise shown without comment — offline is this
-/// app's normal condition, not an error, and a banner every time the user is in a
-/// lift is noise. It appears once the cache is older than [kStaleCacheThreshold],
-/// which is the point at which the figure on the pill stops being an answer and
-/// starts being a memory.
+/// Cached weather and news are otherwise shown without comment — offline is
+/// normal, not an error. The banner appears only once the cache is older than
+/// [kStaleCacheThreshold].
 class _StaleBanner extends StatelessWidget {
   const _StaleBanner();
 
@@ -311,15 +406,18 @@ class _StaleBanner extends StatelessWidget {
   }
 }
 
-/// [_TodayTasks] is today's open work (Requirements 3.4, 3.5, 3.6).
-class _TodayTasks extends StatelessWidget {
-  const _TodayTasks();
+/// [_Agenda] is today's open work (Requirements 3.4, 3.5, 3.6).
+///
+/// `3 Overdue · 7 tasks today` means seven in total, three of them late — not
+/// ten: [TasksState.todayTasks] already includes the overdue ones.
+class _Agenda extends StatelessWidget {
+  const _Agenda();
 
-  /// [_seeAll] is Requirement 3.6: the Tasks module, filtered to today.
+  /// [_showAll] is Requirement 3.6: the Tasks module, filtered to today.
   ///
-  /// The filter is dispatched before the tab is switched, so the list is already
-  /// narrowed when it comes into view rather than re-filtering under the user.
-  void _seeAll(BuildContext context) {
+  /// Filter is dispatched before the tab switch so the list is already narrowed
+  /// when it comes into view.
+  void _showAll(BuildContext context) {
     context.read<TasksBloc>().add(
           const ChangeFilterEvent(filter: TaskFilter.today),
         );
@@ -329,9 +427,8 @@ class _TodayTasks extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<TasksBloc, TasksState>(
-      // Today's preview is derived from the task list, its categories and the
-      // load flag. The selected date, active filter and in-module search query
-      // the Tasks tab carries do not change it.
+      // Derived only from tasks, categories and the load flag: the Tasks tab's
+      // selected date, filter and search query do not change this preview.
       buildWhen: (previous, current) =>
           previous.tasks != current.tasks ||
           previous.categories != current.categories ||
@@ -340,35 +437,35 @@ class _TodayTasks extends StatelessWidget {
         final tasks = state.todayTasks;
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _SectionHeader(
-              title: "Today's Tasks",
-              action: tasks.isEmpty ? null : 'See All',
-              onAction: () => _seeAll(context),
+            Center(
+              child: Text(
+                "Today's Agenda",
+                style: context.texts.headlineMedium,
+              ),
             ),
+            const Gap(4),
+            Center(child: _AgendaSubline(state: state)),
+            const Gap(16),
             if (tasks.isEmpty)
-              _Empty(
-                message: state.isLoading
-                    ? 'Loading…'
-                    : 'Nothing due today. Tap + to add something.',
-              )
-            else
+              if (state.isLoading)
+                const _Empty(message: 'Loading…')
+              else
+                _AgendaEmpty(completedToday: state.completedTodayCount)
+            else ...[
               for (final task in tasks.take(_kTaskPreviewCount))
-                TaskCard(
+                // Requirement 3.5: same actions and completion exit as the
+                // Tasks list itself, so the card behaves identically on both.
+                CompletingTaskCard(
+                  key: ValueKey(task.id),
                   task: task,
                   category: state.categoryOf(task),
-                  // Requirement 3.5: the same two actions the Tasks list itself
-                  // offers, because a card that behaves differently on a different
-                  // screen is a card the user has to learn twice.
-                  onToggle: (isCompleted) => context.read<TasksBloc>().add(
-                        ToggleTaskCompletionEvent(
-                          task: task,
-                          isCompleted: isCompleted,
-                        ),
-                      ),
                   onTap: () => showTaskSheet(context, task: task),
                 ),
+              const Gap(4),
+              _ShowAllButton(onTap: () => _showAll(context)),
+            ],
           ],
         );
       },
@@ -376,92 +473,186 @@ class _TodayTasks extends StatelessWidget {
   }
 }
 
-/// [_FinanceSummary] is the four cards of Requirement 3.7.
+/// [_AgendaSubline] is `3 Overdue · 7 tasks today`.
+class _AgendaSubline extends StatelessWidget {
+  const _AgendaSubline({required this.state});
+
+  final TasksState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final texts = context.texts;
+    final overdue = state.overdueCount;
+    final total = state.todayTasks.length;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Hidden entirely at zero: "0 Overdue" in red misreports a clean day.
+        if (overdue > 0) ...[
+          Text(
+            '$overdue Overdue',
+            style: texts.labelMedium?.copyWith(color: colors.error),
+          ),
+          Text(
+            '  ·  ',
+            style: texts.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+          ),
+        ],
+        Text(
+          total == 1 ? '1 task today' : '$total tasks today',
+          style: texts.labelMedium?.copyWith(color: colors.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+/// [_ShowAllButton] is the full-width outlined `Show All ›` under the rows.
+class _ShowAllButton extends StatelessWidget {
+  const _ShowAllButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: colors.onSurface,
+        side: BorderSide(color: colors.outlineVariant),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('Show All', style: context.texts.labelLarge),
+          const Icon(Icons.chevron_right_rounded, size: 18),
+        ],
+      ),
+    );
+  }
+}
+
+/// [_MoneyAndUpcoming] is the two fixed panels of Requirement 3.7: what is left
+/// to spend and what is about to happen; the rest lives in Finance
+/// (Requirement 3.8).
 ///
-/// Every figure is about *this* month, whatever month the Finance tab happens to
-/// be scrolled to — hence [FinanceState.totalsFor] rather than the selected-month
-/// getters, which would put February's spending on the Dashboard because the user
-/// went looking at February. The budget card is assembled the same way:
-/// [BudgetStatus] is a pure value, so this month's limit and this month's spending
-/// can be put together here without asking [BudgetBloc] to leave the month it is
-/// tracking.
-class _FinanceSummary extends StatelessWidget {
-  const _FinanceSummary();
+/// Every figure is about *this* month regardless of the month the Finance tab is
+/// scrolled to — hence [FinanceState.totalsFor] rather than the selected-month
+/// getters. [BudgetStatus] is a pure value, so this month's limit and spending
+/// can be combined here without moving [BudgetBloc] off the month it tracks.
+class _MoneyAndUpcoming extends StatelessWidget {
+  const _MoneyAndUpcoming();
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: const [
+          Expanded(child: _RemainingPanel()),
+          Gap(10),
+          Expanded(child: _UpcomingPanel()),
+        ],
+      ),
+    );
+  }
+}
+
+/// [_RemainingPanel] is what is left of the month's budget.
+class _RemainingPanel extends StatelessWidget {
+  const _RemainingPanel();
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<FinanceBloc, FinanceState>(
-      // The four cards are this month's totals, derived from the transactions.
-      // The selected month, filters and search query the Finance tab carries do
-      // not change them, so they must not rebuild this row.
+      // Derived from this month's transactions: the Finance tab's selected
+      // month, filters and search query do not change it.
       buildWhen: (previous, current) =>
           previous.transactions != current.transactions,
       builder: (context, finance) {
         return BlocBuilder<BudgetBloc, BudgetState>(
-          // Only the budget-left card reads BudgetBloc, and only its limit — not
-          // the spend-and-alert churn FinanceBloc drives through it per write.
+          // Only the limit, not the spend-and-alert churn FinanceBloc drives
+          // through this bloc on every write.
           buildWhen: (previous, current) => previous.budgets != current.budgets,
           builder: (context, budgets) {
-            final now = DateTime.now();
+            final colors = context.colors;
+            final texts = context.texts;
+            final now = clock.now();
 
             final month = finance.totalsFor(now);
-            final previous = finance.totalsFor(
-              DateTime(now.year, now.month - 1),
-            );
-
             final status = BudgetStatus(
               budget: budgets.budgetFor(month: now.month, year: now.year),
               spentMinor: month.expenseMinor,
             );
 
-            // Requirement 3.8: every card is a way into the Finance module.
-            void open() => context.goNamed(financeRoute);
-
-            return SizedBox(
-              height: 104,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _SpentCard(
-                    spentMinor: month.expenseMinor,
-                    previousMinor: previous.expenseMinor,
-                    onTap: open,
-                  ),
-                  const Gap(10),
-                  _SummaryCard(
-                    label: 'Income',
-                    value: Helpers.formatMoney(
-                      month.incomeMinor,
-                      compact: true,
-                    ),
-                    onTap: open,
-                  ),
-                  const Gap(10),
-                  _SummaryCard(
-                    label: 'Savings',
-                    value: Helpers.formatMoney(
-                      month.savingsMinor,
-                      compact: true,
-                    ),
-                    // A month that spent more than it earned is the one figure here
-                    // the user most needs to notice.
-                    isNegative: month.savingsMinor < 0,
-                    onTap: open,
-                  ),
-                  const Gap(10),
-                  _SummaryCard(
-                    label: 'Budget left',
-                    value: status.isSet
-                        ? Helpers.formatMoney(
-                            status.remainingMinor,
-                            compact: true,
-                          )
-                        : 'Not set',
-                    isNegative: status.isSet && status.remainingMinor < 0,
-                    onTap: open,
-                  ),
-                ],
+            return _Panel(
+              title: 'Remaining',
+              // An unset budget has no remainder, so the panel routes to
+              // budget setup rather than showing "₹0".
+              onTap: () => context.goNamed(
+                status.isSet ? financeRoute : budgetsRoute,
               ),
+              child: !status.isSet
+                  ? Text(
+                      'Not set',
+                      style: texts.headlineSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                Helpers.formatMoney(
+                                  status.remainingMinor,
+                                  compact: true,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: texts.headlineSmall?.copyWith(
+                                  // An overspent month is the figure the user
+                                  // most needs to notice.
+                                  color: status.remainingMinor < 0
+                                      ? colors.error
+                                      : colors.primary,
+                                ),
+                              ),
+                            ),
+                            const Gap(6),
+                            Text(
+                              'this month',
+                              style: texts.labelSmall?.copyWith(
+                                color: colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Gap(10),
+                        _BudgetBar(status: status),
+                        const Gap(8),
+                        Text(
+                          '${status.percentUsed.round()}% used · '
+                          '${Helpers.formatMoney(status.spentMinor, compact: true)} used',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: texts.labelSmall?.copyWith(
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
             );
           },
         );
@@ -470,194 +661,166 @@ class _FinanceSummary extends StatelessWidget {
   }
 }
 
-/// [_SpentCard] is the reference UI's headline card: what the month has cost, and
-/// how that compares with the last one.
-class _SpentCard extends StatelessWidget {
-  const _SpentCard({
-    required this.spentMinor,
-    required this.previousMinor,
-    required this.onTap,
-  });
+/// [_BudgetBar] is the progress bar under the remaining figure.
+class _BudgetBar extends StatelessWidget {
+  const _BudgetBar({required this.status});
 
-  final int spentMinor;
-  final int previousMinor;
-  final VoidCallback onTap;
-
-  /// The change on last month, or null when there is nothing to compare against —
-  /// a first month has no trend, and a percentage of zero is not a fact about
-  /// anyone's spending.
-  double? get _change {
-    if (previousMinor <= 0) return null;
-    return (spentMinor - previousMinor) / previousMinor * 100;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final change = _change;
-
-    return _Card(
-      width: 218,
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text('You spent', style: context.texts.titleMedium),
-              ),
-              if (change != null) _ChangeBadge(change: change),
-            ],
-          ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Flexible(
-                child: Text(
-                  Helpers.formatMoney(spentMinor, compact: true),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: context.texts.headlineSmall,
-                ),
-              ),
-              const Gap(6),
-              Text(
-                'this month',
-                style: context.texts.labelSmall?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// [_ChangeBadge] is the `24% ↑` marker of the reference UI.
-class _ChangeBadge extends StatelessWidget {
-  const _ChangeBadge({required this.change});
-
-  final double change;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-    final isUp = change >= 0;
-    final tint = isUp ? colors.error : colors.primary;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: tint.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '${change.abs().round()}%',
-            style: context.texts.labelSmall?.copyWith(
-              color: tint,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Icon(
-            isUp ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
-            size: 12,
-            color: tint,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  const _SummaryCard({
-    required this.label,
-    required this.value,
-    required this.onTap,
-    this.isNegative = false,
-  });
-
-  final String label;
-  final String value;
-  final VoidCallback onTap;
-  final bool isNegative;
+  final BudgetStatus status;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return _Card(
-      width: 138,
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: context.texts.labelMedium?.copyWith(
-              color: colors.onSurfaceVariant,
-            ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(3),
+      child: TweenAnimationBuilder<double>(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        tween: Tween(end: status.ratio),
+        builder: (context, ratio, _) => LinearProgressIndicator(
+          value: ratio,
+          minHeight: 6,
+          backgroundColor: colors.surfaceContainerHighest,
+          valueColor: AlwaysStoppedAnimation(
+            status.remainingMinor < 0 ? colors.error : colors.primary,
           ),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: context.texts.titleLarge?.copyWith(
-              color: isNegative ? colors.error : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Card extends StatelessWidget {
-  const _Card({
-    required this.width,
-    required this.child,
-    required this.onTap,
-  });
-
-  final double width;
-  final Widget child;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: context.colors.surfaceContainer,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: width,
-          padding: const EdgeInsets.all(14),
-          child: child,
         ),
       ),
     );
   }
 }
 
-/// [_News] is the headlines and their category tabs (Requirements 3.9, 3.10).
-class _News extends StatelessWidget {
-  const _News();
+/// [_UpcomingPanel] is the next task due later today (Requirement 3.7).
+///
+/// Not a calendar event — the app has no calendar. It is
+/// [TasksState.nextUpcoming]: the earliest pending task still ahead of the clock
+/// today. The countdown rebuilds only when [TasksBloc] emits, not every minute:
+/// a slightly stale "in 10 mins" is cheaper than a permanent [Timer.periodic].
+class _UpcomingPanel extends StatelessWidget {
+  const _UpcomingPanel();
 
-  /// [_open] hands the article to the browser (Requirement 3.10).
-  ///
-  /// Not a webview: that would wrap somebody else's page in this app's chrome and
-  /// make the app answerable for it, along with a back button to explain.
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<TasksBloc, TasksState>(
+      buildWhen: (previous, current) => previous.tasks != current.tasks,
+      builder: (context, state) {
+        final colors = context.colors;
+        final texts = context.texts;
+        final task = state.nextUpcoming;
+
+        return _Panel(
+          title: 'Upcoming',
+          // Accent-outlined: the only thing on the Dashboard with a deadline.
+          border: task == null ? null : colors.primary,
+          onTap: () => context.goNamed(tasksRoute),
+          // An empty panel keeps its footprint rather than collapsing the row
+          // (CLAUDE.md §12).
+          child: task == null
+              ? Text(
+                  'Nothing scheduled',
+                  style: texts.titleMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      task.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: texts.titleMedium,
+                    ),
+                    const Gap(6),
+                    Text(
+                      task.dueDate!.countdown,
+                      style: texts.labelMedium?.copyWith(color: colors.primary),
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+}
+
+/// [_Panel] is the shared shell of the two Dashboard panels: a title with a
+/// chevron, and whatever the panel is about beneath it.
+class _Panel extends StatelessWidget {
+  const _Panel({
+    required this.title,
+    required this.child,
+    required this.onTap,
+    this.border,
+  });
+
+  final String title;
+  final Widget child;
+  final VoidCallback onTap;
+  final Color? border;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final outline = border;
+
+    return Material(
+      color: colors.surfaceContainer,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: outline == null ? null : Border.all(color: outline),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: context.texts.titleSmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 16,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const Gap(10),
+              child,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// [_TopStories] is the headline preview (Requirements 3.9, 3.10).
+///
+/// Category selection lives in the News destination, not here: the Dashboard
+/// never dispatches `SelectNewsCategoryEvent` and renders whatever tab that
+/// module is on.
+///
+/// Live scores, when they land, take a fixed-height box between this header and
+/// the rows, from a bloc of their own (design.md §7).
+class _TopStories extends StatelessWidget {
+  const _TopStories();
+
+  /// [_open] hands the article to the external browser, not a webview
+  /// (Requirement 3.10).
   Future<void> _open(BuildContext context, Article article) async {
     final url = Uri.tryParse(article.url);
 
@@ -672,32 +835,20 @@ class _News extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<NewsBloc, NewsState>(
+      // Without this, unrelated `message` churn re-issues every article image.
+      buildWhen: (previous, current) =>
+          previous.visibleArticles != current.visibleArticles ||
+          previous.isLoading != current.isLoading ||
+          previous.error != current.error,
       builder: (context, state) {
         final articles = state.visibleArticles;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionHeader(title: 'News'),
-            const Gap(8),
-            SizedBox(
-              height: 36,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: NewsCategory.values.length,
-                separatorBuilder: (_, _) => const Gap(8),
-                itemBuilder: (context, index) {
-                  final category = NewsCategory.values[index];
-
-                  return _CategoryTab(
-                    label: category.label,
-                    isSelected: category == state.category,
-                    onTap: () => context.read<NewsBloc>().add(
-                          SelectNewsCategoryEvent(category: category),
-                        ),
-                  );
-                },
-              ),
+            _SectionHeader(
+              title: 'Top Stories',
+              onAction: () => showNewsCategorySheet(context),
             ),
             const Gap(12),
             if (articles.isEmpty)
@@ -721,48 +872,6 @@ class _News extends StatelessWidget {
   }
 }
 
-class _CategoryTab extends StatelessWidget {
-  const _CategoryTab({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.colors;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color:
-              isSelected ? colors.surfaceContainerHighest : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected ? colors.outline : colors.outlineVariant,
-          ),
-        ),
-        child: Text(
-          label,
-          style: context.texts.labelMedium?.copyWith(
-            color: isSelected ? colors.onSurface : colors.onSurfaceVariant,
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _ArticleCard extends StatelessWidget {
   const _ArticleCard({required this.article, required this.onTap});
 
@@ -772,7 +881,6 @@ class _ArticleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final image = article.imageUrl;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -782,65 +890,50 @@ class _ArticleCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (image != null && image.isNotEmpty)
-                AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.network(
-                    image,
-                    fit: BoxFit.cover,
-                    // A headline whose picture will not load is still a headline:
-                    // the card keeps its shape and drops the image rather than
-                    // showing a broken one. Offline, this is every card.
-                    errorBuilder: (_, _, _) => ColoredBox(
-                      color: colors.surfaceContainerHighest,
-                      child: Icon(
-                        Icons.article_outlined,
-                        color: colors.onSurfaceVariant,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        article.title,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: context.texts.titleMedium,
                       ),
-                    ),
-                    loadingBuilder: (context, child, progress) => progress == null
-                        ? child
-                        : ColoredBox(color: colors.surfaceContainerHighest),
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      article.title,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: context.texts.titleMedium,
-                    ),
-                    const Gap(6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            article.source,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: context.texts.labelSmall?.copyWith(
-                              color: colors.onSurfaceVariant,
+                      const Gap(8),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              article.source,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: context.texts.labelSmall?.copyWith(
+                                color: colors.onSurfaceVariant,
+                              ),
                             ),
                           ),
-                        ),
-                        Icon(
-                          Icons.open_in_new_rounded,
-                          size: 14,
-                          color: colors.onSurfaceVariant,
-                        ),
-                      ],
-                    ),
-                  ],
+                          const Gap(6),
+                          Icon(
+                            Icons.open_in_new_rounded,
+                            size: 12,
+                            color: colors.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                const Gap(12),
+                _Thumbnail(url: article.imageUrl),
+              ],
+            ),
           ),
         ),
       ),
@@ -848,45 +941,165 @@ class _ArticleCard extends StatelessWidget {
   }
 }
 
-/// [_SectionHeader] is the `Today's Tasks — See All ›` line.
+/// [_Thumbnail] is the 96×72 picture on the right of a headline.
+class _Thumbnail extends StatelessWidget {
+  const _Thumbnail({required this.url});
+
+  final String? url;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final image = url;
+
+    // The box is reserved whether or not a picture arrives, so the row does not
+    // reflow when one does (CLAUDE.md §12).
+    Widget wrap(Widget child) => ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(width: 96, height: 72, child: child),
+        );
+
+    final placeholder = ColoredBox(
+      color: colors.surfaceContainerHighest,
+      child: Icon(
+        Icons.article_outlined,
+        size: 20,
+        color: colors.onSurfaceVariant,
+      ),
+    );
+
+    if (image == null || image.isEmpty) return wrap(placeholder);
+
+    return wrap(
+      Image.network(
+        image,
+        fit: BoxFit.cover,
+        // Decode to the 96px box, not the source width: a full-size article
+        // image costs megabytes of RGBA per card in a scrolling list.
+        cacheWidth: (96 * MediaQuery.devicePixelRatioOf(context)).round(),
+        // The card keeps its shape and drops the image rather than showing a
+        // broken one. Offline, this is every card.
+        errorBuilder: (_, _, _) => placeholder,
+        loadingBuilder: (context, child, progress) => progress == null
+            ? child
+            : ColoredBox(color: colors.surfaceContainerHighest),
+      ),
+    );
+  }
+}
+
+/// [_SectionHeader] is the `Top Stories ›` line.
+///
+/// The action is an unlabelled chevron, so the tooltip is what tells a screen
+/// reader where it leads (CLAUDE.md §9).
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.action, this.onAction});
+  const _SectionHeader({required this.title, this.onAction});
 
   final String title;
-  final String? action;
   final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final label = action;
+    final action = onAction;
 
     return Row(
       children: [
         Expanded(
-          child: Text(
-            title,
-            style: context.texts.labelMedium?.copyWith(
-              color: colors.onSurfaceVariant,
-            ),
-          ),
+          child: Text(title, style: context.texts.headlineSmall),
         ),
-        if (label != null && onAction != null)
-          TextButton(
-            onPressed: onAction,
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              foregroundColor: colors.onSurfaceVariant,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(label, style: context.texts.labelMedium),
-                const Icon(Icons.chevron_right_rounded, size: 16),
-              ],
-            ),
+        if (action != null)
+          IconButton(
+            onPressed: action,
+            icon: const Icon(Icons.chevron_right_rounded),
+            iconSize: 22,
+            color: colors.onSurfaceVariant,
+            visualDensity: VisualDensity.compact,
+            tooltip: 'Change category',
           ),
       ],
+    );
+  }
+}
+
+/// [_AgendaEmpty] is the agenda with nothing open on it.
+///
+/// Two different days read as "no tasks": one where everything got done and one
+/// where nothing was planned. [completedToday] separates them so a cleared list
+/// is shown as finished work rather than as an absence.
+class _AgendaEmpty extends StatelessWidget {
+  const _AgendaEmpty({required this.completedToday});
+
+  final int completedToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.colors;
+    final texts = context.texts;
+    final isEarned = completedToday > 0;
+
+    // Primary for a cleared day, neutral for an unplanned one: the celebratory
+    // tint has to be earned, or every empty day looks like an achievement.
+    final accent = isEarned ? colors.primary : colors.onSurfaceVariant;
+
+    return Semantics(
+      label: isEarned
+          ? 'All tasks done today. $completedToday completed.'
+          : 'Nothing scheduled for today.',
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        decoration: BoxDecoration(
+          color: isEarned
+              ? colors.primaryContainer.withValues(alpha: 0.35)
+              : colors.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isEarned
+                ? colors.primary.withValues(alpha: 0.25)
+                : colors.outlineVariant,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              height: 56,
+              width: 56,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isEarned
+                    ? Icons.task_alt_rounded
+                    : Icons.wb_sunny_outlined,
+                color: accent,
+                size: 28,
+              ),
+            ),
+            const Gap(14),
+            Text(
+              isEarned ? 'Agenda cleared' : 'A clear day ahead',
+              textAlign: TextAlign.center,
+              style: texts.titleMedium?.copyWith(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Gap(6),
+            Text(
+              isEarned
+                  ? completedToday == 1
+                      ? 'You finished the one task on today’s list.'
+                      : 'You finished all $completedToday tasks on today’s list.'
+                  : 'Nothing due today. Tap + to plan something.',
+              textAlign: TextAlign.center,
+              style: texts.bodyMedium?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:everything_app/core/utils/extensions.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -22,7 +23,7 @@ class MonthSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = clock.now();
     final isCurrent = month.month == now.month && month.year == now.year;
 
     return Row(

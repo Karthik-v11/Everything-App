@@ -36,8 +36,7 @@ class MonthTotals extends Equatable {
   final int incomeMinor;
   final int expenseMinor;
 
-  /// What was earned and not spent. Negative in a month that spent more than it
-  /// earned, which is exactly what the user needs to see.
+  /// What was earned and not spent; negative when the month overspent.
   int get savingsMinor => incomeMinor - expenseMinor;
 
   @override
@@ -46,13 +45,17 @@ class MonthTotals extends Equatable {
 
 /// [FinanceState] holds everything the Finance module renders.
 ///
-/// [transactions] is the complete list from the database. **Every** other figure
-/// on the screen — the month's totals, the donut, the trend, the account
-/// balances, the filtered list — is derived from it here, so changing the month
-/// or a filter is a recomputation rather than a database round trip, and no two
-/// figures can disagree about what was spent.
+/// [transactions] is the complete list from the database; every other figure is
+/// derived from it here, so changing the month or a filter is a recomputation
+/// rather than a database round trip and no two figures can disagree.
+///
+/// The derived figures are `late final` fields, not getters: a getter re-walked
+/// the whole transaction history on every read, and one FinancePage build reads
+/// them about ten times. The state is immutable, so computing each at most once
+/// per instance is equivalent — a new instance from [copyWith] recomputes. This
+/// is also why the constructor is not `const`.
 class FinanceState extends Equatable {
-  const FinanceState({
+  FinanceState({
     required this.selectedMonth,
     this.isLoading = false,
     this.error = '',
@@ -86,16 +89,16 @@ class FinanceState extends Equatable {
   // ── The selected month ─────────────────────────────────────────────────────
 
   /// [monthTransactions] is every transaction dated within [selectedMonth].
-  List<Transaction> get monthTransactions => [
-        for (final transaction in transactions)
-          if (transaction.date.month == selectedMonth.month &&
-              transaction.date.year == selectedMonth.year)
-            transaction,
-      ];
+  late final List<Transaction> monthTransactions = [
+    for (final transaction in transactions)
+      if (transaction.date.month == selectedMonth.month &&
+          transaction.date.year == selectedMonth.year)
+        transaction,
+  ];
 
   /// [visibleTransactions] is [monthTransactions] under the active filters and
   /// the search query, newest first.
-  List<Transaction> get visibleTransactions {
+  late final List<Transaction> visibleTransactions = () {
     final matched = [
       for (final transaction in monthTransactions)
         if (_matches(transaction)) transaction,
@@ -104,36 +107,33 @@ class FinanceState extends Equatable {
     matched.sort((a, b) => b.date.compareTo(a.date));
 
     return matched;
-  }
+  }();
 
   /// [incomeMinor] is the month's income (Requirement 13.1).
-  int get incomeMinor => _sum(
-        monthTransactions.where((t) => t.type == TransactionType.income),
-      );
+  late final int incomeMinor = _sum(
+    monthTransactions.where((t) => t.type == TransactionType.income),
+  );
 
   /// [expenseMinor] is the month's expenses — the figure the budget is tracked
-  /// against (Requirement 14.1) and the one Property 7 is about.
-  ///
-  /// Investments are excluded: money moved into an investment has not been spent,
-  /// and counting it as spending would tell a user who saved well that they
+  /// against (Requirement 14.1, Property 7). Investments are excluded: money
+  /// moved into an investment has not been spent.
+  late final int expenseMinor = _sum(
+    monthTransactions.where((t) => t.type == TransactionType.expense),
+  );
+
+  late final int investedMinor = _sum(
+    monthTransactions.where((t) => t.type == TransactionType.investment),
+  );
+
+  /// [savingsMinor] is what was earned and not spent; negative when the month
   /// overspent.
-  int get expenseMinor => _sum(
-        monthTransactions.where((t) => t.type == TransactionType.expense),
-      );
-
-  int get investedMinor => _sum(
-        monthTransactions.where((t) => t.type == TransactionType.investment),
-      );
-
-  /// [savingsMinor] is what was earned and not spent. It is negative in a month
-  /// that spent more than it earned, which is exactly what the user needs to see.
   int get savingsMinor => incomeMinor - expenseMinor;
 
   /// [expenseByCategory] is the month's expenses per category, largest first —
   /// the donut and its legend (Requirement 13.2).
-  List<CategorySpend> get expenseByCategory {
+  late final List<CategorySpend> expenseByCategory = () {
     final total = expenseMinor;
-    if (total == 0) return const [];
+    if (total == 0) return const <CategorySpend>[];
 
     final byCategory = <String, int>{};
     for (final transaction in monthTransactions) {
@@ -153,14 +153,14 @@ class FinanceState extends Equatable {
           share: entry.value / total,
         ),
     ]..sort((a, b) => b.amountMinor.compareTo(a.amountMinor));
-  }
+  }();
 
   /// [trend] is the last [kTrendMonths] months ending at [selectedMonth], oldest
   /// first — the trend line and the income-versus-expense bars (Requirement 13.2).
   ///
-  /// A month with nothing in it is still a column: dropping it would draw a line
-  /// straight from March to June and call it continuous.
-  List<MonthTotals> get trend {
+  /// An empty month is still a column — dropping it would draw a continuous line
+  /// across the gap.
+  late final List<MonthTotals> trend = () {
     final months = [
       for (var offset = kTrendMonths - 1; offset >= 0; offset--)
         DateTime(selectedMonth.year, selectedMonth.month - offset),
@@ -188,14 +188,12 @@ class FinanceState extends Equatable {
           expenseMinor: expense[month]!,
         ),
     ];
-  }
+  }();
 
-  /// [totalsFor] is any month's income and expenses, whichever month is selected.
-  ///
-  /// The Dashboard needs it: it is always about *this* month, while
-  /// [selectedMonth] is wherever the user last scrolled the Finance tab to. It
-  /// goes through the same summing rule as every other figure here, so the two
-  /// screens cannot disagree about what a month cost.
+  /// [totalsFor] is any month's income and expenses, independent of
+  /// [selectedMonth] — the Dashboard is always about this month, while
+  /// [selectedMonth] follows the Finance tab. Same summing rule as every other
+  /// figure here, so the two screens cannot disagree.
   MonthTotals totalsFor(DateTime month) {
     final dated = [
       for (final transaction in transactions)
@@ -214,52 +212,57 @@ class FinanceState extends Equatable {
   // ── Accounts ───────────────────────────────────────────────────────────────
 
   /// [activeAccounts] is the accounts a new transaction may be filed under.
-  List<Account> get activeAccounts => [
-        for (final account in accounts)
-          if (!account.isArchived) account,
-      ];
+  late final List<Account> activeAccounts = [
+    for (final account in accounts)
+      if (!account.isArchived) account,
+  ];
+
+  late final Map<String, Account> _accountsById = {
+    for (final account in accounts) account.id: account,
+  };
+
+  /// Every account's transactions summed in a single pass. Per-account scans
+  /// made [netWorthMinor] O(accounts × transactions), and the accounts list
+  /// re-ran [balanceOf] for the same account it had just totalled.
+  late final Map<String, int> _movementByAccountId = () {
+    final movement = <String, int>{};
+    for (final transaction in transactions) {
+      movement.update(
+        transaction.accountId,
+        (amount) => amount + transaction.signedMinor,
+        ifAbsent: () => transaction.signedMinor,
+      );
+    }
+    return movement;
+  }();
 
   /// [balanceOf] is an account's balance: its opening balance plus every
   /// transaction ever filed against it.
   ///
-  /// Derived rather than stored, so it cannot drift from the transactions that
-  /// produced it — a stored running balance needs every write to update two rows,
-  /// and one missed update is a number that nothing on the screen can explain.
-  int balanceOf(Account account) {
-    var balance = account.openingBalanceMinor;
-
-    for (final transaction in transactions) {
-      if (transaction.accountId != account.id) continue;
-      balance += transaction.signedMinor;
-    }
-
-    return balance;
-  }
+  /// Derived rather than stored so it cannot drift: a stored running balance
+  /// needs every write to update two rows.
+  int balanceOf(Account account) =>
+      account.openingBalanceMinor + (_movementByAccountId[account.id] ?? 0);
 
   /// [netWorthMinor] is every active account's balance, together.
-  int get netWorthMinor {
+  late final int netWorthMinor = () {
     var total = 0;
     for (final account in activeAccounts) {
       total += balanceOf(account);
     }
     return total;
-  }
+  }();
 
-  Account? accountOf(Transaction transaction) {
-    for (final account in accounts) {
-      if (account.id == transaction.accountId) return account;
-    }
-    return null;
-  }
+  Account? accountOf(Transaction transaction) =>
+      _accountsById[transaction.accountId];
 
   // ── Spend, for the budget ──────────────────────────────────────────────────
 
   /// [spendFor] is a month's expenses, in total and per category.
   ///
-  /// Static, and the only figure this bloc hands to [BudgetBloc]. It reads the
-  /// same `type == expense` rule as [expenseMinor] — the budget and the summary
-  /// must agree on what "spent" means, or the bar will say 80% while the card
-  /// says something else.
+  /// The only figure this bloc hands to [BudgetBloc]. Must keep the same
+  /// `type == expense` rule as [expenseMinor], or the budget bar and the summary
+  /// card would disagree about what "spent" means.
   static ({int totalMinor, Map<String, int> byCategory}) spendFor(
     List<Transaction> transactions,
     DateTime month,

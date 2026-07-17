@@ -15,10 +15,8 @@ class WatchSharesEvent extends ShareEvent {
   const WatchSharesEvent();
 }
 
-/// [SharesReceivedEvent] is one share, from either of the plugin's two paths.
-///
-/// Both the launch share and the stream funnel through here, so there is exactly
-/// one place a share becomes state.
+/// [SharesReceivedEvent] is one share from either of the plugin's two paths —
+/// both funnel here, so there is exactly one place a share becomes state.
 class SharesReceivedEvent extends ShareEvent {
   const SharesReceivedEvent({required this.items});
 

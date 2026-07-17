@@ -16,19 +16,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-/// [LibraryPage] is the Library hub (Requirements 6–10).
+/// The Library hub (Requirements 6–10).
 ///
-/// Four cards for the four collections, then the projects. Each card carries the
-/// one number that says whether it is worth opening — how many bookmarks, how many
-/// things still to buy, how many titles being watched, how many items in the vault.
-/// A row of names with no counts is a menu; a row of names with counts is a status.
+/// Four collection cards, each carrying the count that says whether it is worth
+/// opening, then the projects. The vault card shows a count and nothing else —
+/// its screen challenges before it renders (Requirement 9.2).
 ///
-/// The vault card is the exception: it shows a count and nothing else, and it is
-/// the only one whose screen asks who you are before it renders (Requirement 9.2).
-///
-/// Projects live on the hub rather than behind a fifth card because they are the
-/// only one of the five that is a *container* — the others are lists you open, and
-/// a project is a thing you work inside.
+/// Projects sit on the hub rather than behind a fifth card because they are
+/// containers to work inside, not lists to open.
 class LibraryPage extends StatelessWidget {
   const LibraryPage({super.key});
 
@@ -38,8 +33,8 @@ class LibraryPage extends StatelessWidget {
       bottom: false,
       child: Column(
         children: [
-          // Outside the list, so the header stays put while the page scrolls under
-          // it — the same shape as the other three tabs.
+          // Outside the list so the header stays put while the page scrolls
+          // under it, matching the other three tabs.
           Padding(
             padding: responsivePadding(context),
             child: const ModuleAppBar(title: 'Library'),
@@ -72,12 +67,10 @@ class _Body extends StatelessWidget {
   }
 }
 
-/// [_Collections] is the four tiles, laid out two to a row.
+/// The four collection tiles, two to a row.
 ///
-/// Each subscribes to its own bloc for its count rather than the hub reading all
-/// four: a bookmark saved elsewhere rebuilds the bookmarks tile and nothing else.
-/// A 2×2 grid rather than a stack of full-width rows: the four are peers, and a
-/// grid reads as "pick one" where a list reads as "work down these in order".
+/// Each tile subscribes to its own bloc for its count rather than the hub reading
+/// all four, so a bookmark saved elsewhere rebuilds only the bookmarks tile.
 class _Collections extends StatelessWidget {
   const _Collections();
 
@@ -131,9 +124,8 @@ class _Collections extends StatelessWidget {
                 buildWhen: (previous, current) =>
                     previous.items != current.items,
                 builder: (context, state) {
-                  // What is being watched *now* — the number the user is actually
-                  // keeping. A lifetime total counts the things they finished in
-                  // 2019.
+                  // Counts what is being watched now, not a lifetime total that
+                  // would include long-finished titles.
                   final watching = state.countOfStatus(WatchStatus.watching);
 
                   return _CollectionTile(
@@ -158,10 +150,8 @@ class _Collections extends StatelessWidget {
                   icon: Icons.lock_outline_rounded,
                   count: state.items.length,
                   unit: 'items',
-                  // The one tile that says what opening it will cost you. The
-                  // screen behind it asks for a fingerprint or a PIN before it
-                  // renders a single row (Requirement 9.2), and being told that
-                  // here is friendlier than being challenged without warning.
+                  // Lock badge warns that the screen behind challenges for a
+                  // fingerprint or PIN before rendering a row (Requirement 9.2).
                   isLocked: true,
                   onTap: () => context.pushNamed(vaultRoute),
                 ),
@@ -174,11 +164,8 @@ class _Collections extends StatelessWidget {
   }
 }
 
-/// [_CollectionTile] is one of the four: an icon chip, the number that says
-/// whether it is worth opening, and the name under it.
-///
-/// The count leads — it is the one thing that changes and the reason to tap in —
-/// with the accent reserved for the icon chip and the lock badge so the tiles read
+/// One collection tile: an icon chip, the count, and the name under it. The
+/// accent is reserved for the icon chip and the lock badge so the four tiles read
 /// as one set rather than four competing colours.
 class _CollectionTile extends StatelessWidget {
   const _CollectionTile({
@@ -243,9 +230,8 @@ class _CollectionTile extends StatelessWidget {
                 ],
               ),
               const Spacer(),
-              // The count reads as one phrase — "12 saved" — rather than a bare
-              // number the reader has to work the meaning of out of the tile it is
-              // sitting on.
+              // Reads as one phrase ("12 saved") rather than a bare number whose
+              // meaning depends on the tile it sits on.
               Row(
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
@@ -287,9 +273,7 @@ class _CollectionTile extends StatelessWidget {
 /// [_ProjectsSection] is the projects, under an Add Project button
 /// (Requirement 10).
 ///
-/// Only the roots are listed. A sub-project belongs on its parent's screen, and a
-/// hub that flattened the tree would say nothing about which project a piece of work
-/// is actually part of.
+/// Only root projects are listed; a sub-project belongs on its parent's screen.
 class _ProjectsSection extends StatelessWidget {
   const _ProjectsSection();
 

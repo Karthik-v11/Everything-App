@@ -277,42 +277,46 @@ class _TypeRow extends StatelessWidget {
           final value = MediaType.values[index];
           final isSelected = value == mediaType;
 
-          return GestureDetector(
-            onTap: () => onSelected(value),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 160),
-              curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isSelected ? colors.primary : colors.surfaceContainer,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: isSelected ? colors.primary : colors.outline,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    value.icon,
-                    size: 15,
-                    color: isSelected
-                        ? colors.onPrimary
-                        : colors.onSurfaceVariant,
+          return Semantics(
+            button: true,
+            selected: isSelected,
+            child: GestureDetector(
+              onTap: () => onSelected(value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? colors.primary : colors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: isSelected ? colors.primary : colors.outline,
                   ),
-                  const Gap(6),
-                  Text(
-                    value.label,
-                    style: context.texts.labelMedium?.copyWith(
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      value.icon,
+                      size: 15,
                       color: isSelected
                           ? colors.onPrimary
                           : colors.onSurfaceVariant,
-                      fontWeight:
-                          isSelected ? FontWeight.w700 : FontWeight.w500,
                     ),
-                  ),
-                ],
+                    const Gap(6),
+                    Text(
+                      value.label,
+                      style: context.texts.labelMedium?.copyWith(
+                        color: isSelected
+                            ? colors.onPrimary
+                            : colors.onSurfaceVariant,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );

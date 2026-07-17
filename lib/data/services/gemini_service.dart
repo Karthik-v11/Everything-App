@@ -4,26 +4,18 @@ import 'package:everything_app/core/interceptors/x_client_interceptor.dart';
 import 'package:everything_app/data/models/json_response.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-/// [GeminiService] is the assistant's cloud generation boundary.
+/// [GeminiService] is the assistant's cloud generation boundary, backing the two
+/// prose paths. Used over an on-device model because of the device, not the
+/// model: a 1B model at q4 needs ~1.5 GB resident and the target phone has ~1 GB
+/// free, so the weights downloaded but never loaded.
 ///
-/// It replaces `GemmaService` as the engine behind the assistant's two prose
-/// paths. The reason is the device, not the model: a 1B model at q4 needs
-/// roughly 1.5 GB resident, and the target phone has ~1 GB free, so the weights
-/// downloaded but never loaded. A cloud call costs no device memory at all.
+/// The price is privacy: the titles of tasks and transactions leave the device.
+/// The settings copy says so; see [ModelBackedAiRepository] for why the vault
+/// never reaches a prompt.
 ///
-/// ## What this costs, and what it costs the user
-///
-/// `gemini-3.1-flash-lite` is free-tier eligible, and the prompts are small —
-/// [AiPrompt.answer] caps grounding at 8 result titles — so personal use fits
-/// inside the free quota. The real price is privacy: the titles of tasks and
-/// transactions leave the device. The settings copy says so; see
-/// [ModelBackedAiRepository] for why the vault never reaches a prompt.
-///
-/// ## Every failure is a degradation
-///
-/// Same contract `GemmaService` held: no key, no network, a 429 over quota, or
-/// a malformed body all return a [JsonResponse.failure], and the caller falls
-/// back to the rule-based engine. None of them are errors the user must act on.
+/// Every failure is a degradation, not an error the user must act on: no key, no
+/// network, a 429 over quota or a malformed body all return a
+/// [JsonResponse.failure] and the caller falls back to the rule-based engine.
 class GeminiService {
   GeminiService({required this.dio}) {
     dio.options
@@ -44,27 +36,21 @@ class GeminiService {
   static const String _baseUrl =
       'https://generativelanguage.googleapis.com/v1beta';
 
-  /// The model, and why this one rather than a Pro tier.
-  ///
-  /// Both prompts are easy: one reads back rows the app's own FTS index already
-  /// returned, the other shortens a single document. Neither needs frontier
-  /// reasoning, and the lite tier is free-tier eligible and the fastest to
-  /// first token — which matters on a path the user waits on.
+  /// The lite tier over Pro: neither prompt needs frontier reasoning, it is
+  /// free-tier eligible, and it is fastest to first token on a path the user
+  /// waits on.
   static const String model = 'gemini-3.1-flash-lite';
 
-  /// [apiKey] gates every call, and is read here rather than added to
-  /// `core/utils/constants.dart` alongside the weather and news keys because
-  /// that file is protected (CLAUDE.md §0). Moving it there is a one-line
-  /// developer change and the natural home for it.
+  /// Gates every call. Read here rather than `core/utils/constants.dart` only
+  /// because that file is protected (CLAUDE.md §0).
   static String get apiKey => dotenv.get('GEMINI_API_KEY', fallback: '');
 
-  /// [isConfigured] is whether a key exists — not whether the network works.
-  /// Reachability is only knowable by calling, which is why [generate] degrades
-  /// rather than throws.
+  /// Whether a key exists — not whether the network works. Reachability is only
+  /// knowable by calling, which is why [generate] degrades rather than throws.
   bool get isConfigured => apiKey.isNotEmpty;
 
-  /// [generate] returns the model's prose, or a failure the caller reads as
-  /// "use the rule-based engine".
+  /// Returns the model's prose, or a failure the caller reads as "use the
+  /// rule-based engine".
   Future<JsonResponse> generate(
     String prompt, {
     String? systemInstruction,

@@ -9,38 +9,24 @@ import 'package:path_provider/path_provider.dart';
 /// [StorageService] measures what the app occupies, per module
 /// (Requirement 25.4).
 ///
-/// ## Where the per-module figure comes from
-///
-/// Every module's rows live in **one** SQLite file, so "how much is Tasks using"
-/// is not a question the file system can answer — `everything.db` is one number.
-/// SQLite's `dbstat` virtual table can: it reports the page count per table, and
-/// pages are what the file is made of, so summing `pgsize` per table is the real
-/// on-disk cost rather than an estimate from row counts and average widths.
-///
-/// It is queried defensively. `dbstat` is a compile-time option
-/// (`SQLITE_ENABLE_DBSTAT_VTAB`), and this app builds SQLite from source as
-/// SQLCipher through a build hook (see `pubspec.yaml`) — a flag change upstream
-/// would take it away with no warning at all, and the Settings screen would throw
-/// where it used to inform. So a failure falls back to row counts with
-/// [StorageUsage.isEstimated] set, and the screen says "142 items" instead of
-/// claiming a size it cannot know.
+/// Every module's rows share one SQLite file, so per-module size comes from the
+/// `dbstat` virtual table (`pgsize` summed per table) rather than the file
+/// system. `dbstat` is a compile-time option (`SQLITE_ENABLE_DBSTAT_VTAB`) and
+/// this app builds SQLite from source as SQLCipher (see `pubspec.yaml`), so it
+/// can vanish upstream without warning: a failure falls back to row counts with
+/// [StorageUsage.isEstimated] set rather than claiming a size it cannot know.
 class StorageService {
   StorageService({required this.database, this.documentsDirectoryOverride});
 
   final AppDatabase database;
 
-  /// A test seam, the same one `BackupService` takes:
-  /// `getApplicationDocumentsDirectory` needs a platform channel, so a test hands
-  /// a temp directory instead. `start.dart` resolves the real one and is
-  /// protected (CLAUDE.md §0), so it is resolved again here rather than threaded
-  /// through `Bootstrap`.
+  /// Test seam: `getApplicationDocumentsDirectory` needs a platform channel, so
+  /// a test hands a temp directory instead.
   final String? documentsDirectoryOverride;
 
-  /// Which tables belong to which module.
-  ///
-  /// `attachments` is Library's: the row is the record of a file the Library owns.
-  /// The file's own bytes are counted separately, from the directory, because
-  /// they are not in the database at all — the row is a path and a name.
+  /// Which tables belong to which module. `attachments` is Library's; the files'
+  /// own bytes are counted separately from the directory, as the row holds only
+  /// a path and a name.
   static const Map<StorageModule, List<String>> _tablesByModule = {
     StorageModule.tasks: ['tasks', 'categories'],
     StorageModule.library: [
@@ -93,12 +79,9 @@ class StorageService {
       }
 
       if (perTable != null) {
-        // The FTS index is several shadow tables (`search_index`,
-        // `search_index_data`, `_idx`, `_content`, `_docsize`, `_config`), and it
-        // is genuinely large — it holds a copy of every title and body in the app.
-        // Folding it into the modules it indexes would make each of them look
-        // twice its size; naming it is the honest answer, and it is also the one
-        // line here a user might act on.
+        // The FTS index is several `search_index*` shadow tables holding a copy
+        // of every title and body, so folding it into the modules it indexes
+        // would make each look twice its size.
         final searchBytes = perTable.entries
             .where((entry) => entry.key.startsWith('search_index'))
             .fold(0, (sum, entry) => sum + entry.value);
@@ -117,10 +100,9 @@ class StorageService {
         ),
       );
 
-      // Phase 13's model is downloaded on demand and does not exist yet. Saying
-      // "Not installed" is the honest line; omitting the row would leave a
-      // requirement's named module silently missing, and showing "0 B" would
-      // imply an installed model that weighs nothing.
+      // The model is downloaded on demand and may not exist. Omitting the row
+      // would leave a requirement's named module missing, and "0 B" would imply
+      // an installed model that weighs nothing.
       lines.add(
         const StorageLine(
           module: StorageModule.aiModel,
@@ -130,10 +112,9 @@ class StorageService {
       );
 
       if (perTable != null) {
-        // Whatever the file is that the modules are not: the schema, drift's
-        // bookkeeping, and free pages a delete left behind. Never negative — a
-        // database that has just been vacuumed can measure smaller than the sum
-        // of its parts by a page or two.
+        // The schema, drift's bookkeeping, and free pages a delete left behind.
+        // Clamped: a just-vacuumed database can measure smaller than the sum of
+        // its parts by a page or two.
         final other = databaseBytes - accountedFor;
         lines.add(
           StorageLine(
@@ -178,30 +159,53 @@ class StorageService {
     }
   }
 
+  /// Every module's row count in one statement.
+  ///
+  /// Counting table by table meant one awaited round-trip to drift's background
+  /// isolate per table — fourteen of them, fully serialised, to fill one section
+  /// of the Settings screen. Scalar subqueries fold them into a single hop, the
+  /// way [_bytesPerTable] already reads every table's size in one grouped
+  /// `dbstat` query.
   Future<Map<StorageModule, int>> _rowsPerModule() async {
-    final counts = <StorageModule, int>{};
+    final tables = [
+      for (final entry in _tablesByModule.entries) ...entry.value,
+    ];
 
-    for (final entry in _tablesByModule.entries) {
-      var total = 0;
-      for (final table in entry.value) {
-        total += await _rowCount(table);
-      }
-      counts[entry.key] = total;
-    }
+    // The alias is positional (`c0`, `c1`, …) rather than the table name: table
+    // names are safe here (they are this file's own constants, not input), but
+    // the index keeps the read below independent of quoting rules.
+    final projection = [
+      for (var i = 0; i < tables.length; i++)
+        '(SELECT COUNT(*) FROM ${tables[i]}) AS c$i',
+    ].join(', ');
 
-    return counts;
-  }
-
-  Future<int> _rowCount(String table) async {
     try {
-      final row = await database
-          .customSelect('SELECT COUNT(*) AS c FROM $table')
-          .getSingleOrNull();
-      return row?.read<int?>('c') ?? 0;
+      final row =
+          await database.customSelect('SELECT $projection').getSingleOrNull();
+      if (row == null) return _zeroCounts;
+
+      final byTable = <String, int>{
+        for (var i = 0; i < tables.length; i++)
+          tables[i]: row.read<int?>('c$i') ?? 0,
+      };
+
+      final counts = <StorageModule, int>{};
+      for (final entry in _tablesByModule.entries) {
+        var total = 0;
+        for (final table in entry.value) {
+          total += byTable[table] ?? 0;
+        }
+        counts[entry.key] = total;
+      }
+      return counts;
     } on Exception {
-      return 0;
+      return _zeroCounts;
     }
   }
+
+  Map<StorageModule, int> get _zeroCounts => {
+        for (final module in _tablesByModule.keys) module: 0,
+      };
 
   Future<String> _documentsDirectory() async {
     final override = documentsDirectoryOverride;
@@ -212,17 +216,10 @@ class StorageService {
 
   /// [_databaseBytes] is the database's real footprint, sidecars included.
   ///
-  /// Two things here are easy to get wrong and both report a confident zero when
-  /// you do:
-  ///
-  /// 1. **The file is not `everything.db`.** `drift_flutter` appends `.sqlite` to
-  ///    the name it is given, and the name it is given (`kDatabaseName`) already
-  ///    ends in `.db` — so the file on disk is `everything.db.sqlite`. Measuring
-  ///    the obvious name measures a file that does not exist.
-  /// 2. **The WAL is part of it.** SQLite in WAL mode keeps `-wal` and `-shm`
-  ///    beside the database, and the `-wal` is not small — it holds every write
-  ///    since the last checkpoint. Omitting it under-reports the app's real disk
-  ///    use, sometimes by megabytes, right after a busy session.
+  /// `drift_flutter` appends `.sqlite` to `kDatabaseName`, which already ends in
+  /// `.db`, so the file on disk is `everything.db.sqlite`. The `-wal` and `-shm`
+  /// sidecars count too: the WAL holds every write since the last checkpoint and
+  /// can be megabytes.
   Future<int> _databaseBytes(String documents) async {
     const String base = '$kDatabaseName.sqlite';
 
@@ -245,9 +242,8 @@ class StorageService {
   /// [_directoryBytes] sums a directory's files, one level deep.
   ///
   /// Not recursive: both directories it is pointed at are flat by construction
-  /// (`AttachmentsService` writes `<id><ext>` and `BackupService` writes one file
-  /// per backup), and a recursive walk of a user's documents directory is a
-  /// Settings screen that gets slower the longer the app is owned.
+  /// (`AttachmentsService` writes `<id><ext>`, `BackupService` one file per
+  /// backup), and a recursive walk would slow as the app accumulates data.
   Future<int> _directoryBytes(String? path) async {
     if (path == null) return 0;
 

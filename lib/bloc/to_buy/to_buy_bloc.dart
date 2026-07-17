@@ -14,28 +14,13 @@ part 'to_buy_state.dart';
 
 /// [ToBuyBloc] owns the To Buy list (Requirement 7).
 ///
-/// Style A: it holds the list, the filters and the search query.
+/// Reminders (Requirement 7.3) are **reconciled, never written directly**:
+/// [ToBuyPlan.build] is a pure function of the list, settings and clock describing
+/// what should be pending, and the service arms or withdraws only the difference —
+/// so a purchased or deleted item loses its alarm with no cancel call anywhere.
 ///
-/// Reminders (Requirement 7.3) are scheduled from here, and they are **reconciled
-/// rather than written** — the same rule Phase 4 established for tasks, for the same
-/// reason. [ToBuyPlan.build] is a pure function of the list, the settings and the
-/// clock, describing every reminder that *should* be pending; the service diffs it
-/// against the OS queue and arms or withdraws only the difference. So an item that
-/// is purchased, deleted, or has its reminder cleared loses its alarm without a
-/// single cancel call existing anywhere in this file — including from code that has
-/// not been written yet.
-///
-/// It reconciles only [NotificationKind.toBuyKinds]. The task reminders share the
-/// same OS queue, and a reconciler that claimed the whole thing would cancel them
-/// (see [NotificationService.applyPlan]).
-///
-/// Events:
-/// 1) [WatchToBuyEvent] — subscribe to the list. Fired once.
-/// 2) [FilterToBuyEvent] — purchased / priority narrowing.
-/// 3) [SearchToBuyEvent] — in-module search.
-/// 4) [SaveToBuyItemEvent] / [DeleteToBuyItemEvent] — the sheet and the swipe.
-/// 5) [ToggleToBuyPurchasedEvent] — the checkbox (Requirement 7.2).
-/// 6) [SyncToBuyRemindersEvent] — rebuild the reminder schedule.
+/// It reconciles only [NotificationKind.toBuyKinds]: task reminders share the
+/// same OS queue and a reconciler claiming the whole queue would cancel them.
 class ToBuyBloc extends Bloc<ToBuyEvent, ToBuyState> {
   ToBuyBloc({
     required this.repository,
@@ -62,9 +47,8 @@ class ToBuyBloc extends Bloc<ToBuyEvent, ToBuyState> {
     await emit.forEach<List<ToBuyItem>>(
       repository.watchAll(),
       onData: (items) {
-        // Every write to the list comes back through this stream, so this is the
-        // one place that has to ask for a reschedule. onData cannot await, so the
-        // work is queued as an event rather than done inline.
+        // Every write returns through this stream, so this is the one place that
+        // asks for a reschedule. Queued as an event because onData cannot await.
         add(const SyncToBuyRemindersEvent());
 
         return state.copyWith(isLoading: false, items: items, error: '');
@@ -117,10 +101,8 @@ class ToBuyBloc extends Bloc<ToBuyEvent, ToBuyState> {
 
   /// [_onToggleToBuyPurchasedEvent] ticks an item off (Requirement 7.2).
   ///
-  /// It does not cancel the item's reminder. It does not have to: the write returns
-  /// through the stream, the stream asks for a resync, and the plan does not include
-  /// a purchased item — so the alarm is withdrawn by the reconciliation rather than
-  /// by anything here remembering to withdraw it.
+  /// It deliberately does not cancel the reminder: the write returns through the
+  /// stream, which triggers a resync, and the plan excludes purchased items.
   FutureOr<void> _onToggleToBuyPurchasedEvent(
     ToggleToBuyPurchasedEvent event,
     Emitter<ToBuyState> emit,
@@ -159,13 +141,10 @@ class ToBuyBloc extends Bloc<ToBuyEvent, ToBuyState> {
   }
 
   /// [_onSyncToBuyRemindersEvent] rebuilds the reminder schedule (Requirement 7.3).
+  /// Idempotent — over-running it costs one query of the pending queue.
   ///
-  /// Idempotent, so running it more often than strictly necessary costs one query of
-  /// the pending queue and nothing else.
-  ///
-  /// It does nothing until [SettingsBloc] has reported the user's configuration.
-  /// Scheduling against the defaults first would fire a burst of reminders at a user
-  /// who had switched them off, and cancel them a moment later.
+  /// It does nothing until [SettingsBloc] reports the user's configuration:
+  /// scheduling against defaults would fire reminders at a user who turned them off.
   FutureOr<void> _onSyncToBuyRemindersEvent(
     SyncToBuyRemindersEvent event,
     Emitter<ToBuyState> emit,

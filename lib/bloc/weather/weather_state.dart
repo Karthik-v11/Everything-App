@@ -1,9 +1,7 @@
 part of 'weather_bloc.dart';
 
-/// [WeatherState] is the weather the app last knew, and when it knew it.
-///
-/// Every field here is persisted, which is what makes this state the offline
-/// cache (Requirement 3.11) rather than something that merely reads one.
+/// [WeatherState] is the weather the app last knew, and when it knew it. Every
+/// field is persisted — this state *is* the offline cache (Requirement 3.11).
 class WeatherState extends Equatable {
   const WeatherState({
     this.isLoading = false,
@@ -25,30 +23,27 @@ class WeatherState extends Equatable {
   final Weather? weather;
   final List<DailyForecast> forecast;
 
-  /// When the reading in this state arrived — not when it was *observed*, which
-  /// is [Weather.observedAt]. Staleness is about the app's knowledge, not the
-  /// weather station's.
+  /// When the reading arrived — not when it was *observed* ([Weather.observedAt]).
   final DateTime? fetchedAt;
 
   bool get hasCity => city.isNotBlank;
 
   bool get hasData => weather != null;
 
-  /// [isStale] is true when the cached reading is older than
-  /// [kStaleCacheThreshold] — the one condition under which the Dashboard tells
-  /// the user it is showing saved data. Anything fresher is shown without comment.
+  /// True past [kStaleCacheThreshold] — the only condition under which the
+  /// Dashboard says it is showing saved data.
   bool get isStale {
     final at = fetchedAt;
     if (at == null) return false;
-    return DateTime.now().difference(at) > kStaleCacheThreshold;
+    return clock.now().difference(at) > kStaleCacheThreshold;
   }
 
-  /// [age] is how long ago the reading arrived, in the words the banner uses.
+  /// How long ago the reading arrived, in the words the banner uses.
   String get age {
     final at = fetchedAt;
     if (at == null) return '';
 
-    final elapsed = DateTime.now().difference(at);
+    final elapsed = clock.now().difference(at);
     if (elapsed.inDays > 0) return '${elapsed.inDays}d ago';
     if (elapsed.inHours > 0) return '${elapsed.inHours}h ago';
     if (elapsed.inMinutes > 0) return '${elapsed.inMinutes}m ago';

@@ -24,9 +24,29 @@
          fingerprint / face prompt never appears. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Dictation into the assistant (Requirement 16). Requested when the mic is
+         first tapped, never on launch.
+
+         No audio is recorded or written anywhere: the OS recogniser is handed the
+         mic and returns text. This is the permission for that hand-off. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Every secret is wrapped by a non-exportable KeyStore key, and the database
+         is SQLCipher-keyed by a secret from that same store. A backup can carry the
+         ciphertext but never the key, so a restored install cannot unwrap what it
+         gets back — and flutter_secure_storage's `resetOnError` (default true)
+         deletes the lot rather than surfacing it, taking the database key with it.
+         Portable migration is the app's own EVB1 backup, which is PIN-derived and
+         device-independent precisely so it can survive this.
+
+         allowBackup covers cloud backup on every version; dataExtractionRules is
+         needed as well because on Android 12+ device-to-device transfer is no
+         longer governed by allowBackup. -->
     <application
         android:label="Everything"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"
@@ -45,6 +65,19 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+
+            <!-- A widget tap launches this activity with the tapped
+                 `everything://…` URI as the intent data. Flutter defaults deep
+                 linking to ON, which hands that URI to GoRouter verbatim as a
+                 location — `everything://widget` matches no route, so the tap
+                 landed on GoRouter's "no routes for location" page instead of
+                 the widget's action. The URI is HomeWidgetBloc's to read off the
+                 plugin channel, not the router's. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -158,6 +191,24 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+
+        <!-- Dictation (Requirement 16). Android 11+ hides installed packages from
+             an app unless it declares what it is looking for, and a
+             SpeechRecognizer it cannot see is reported as "no recogniser on this
+             device" rather than as a missing declaration — so without these two
+             the mic fails on a phone that has a perfectly good recogniser.
+
+             RECOGNIZE_SPEECH is the recogniser itself; GET_INSTALLED_LANGUAGES is
+             what lets it report which locales it can actually handle. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH"/>
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.GET_LANGUAGE_DETAILS"/>
         </intent>
     </queries>
 </manifest>

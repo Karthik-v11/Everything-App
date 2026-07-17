@@ -12,21 +12,10 @@ part 'bookmarks_state.dart';
 
 /// [BookmarksBloc] owns the Bookmarks sub-feature (Requirement 6).
 ///
-/// Style A: it holds the bookmark list, the folders, the source filter and the
-/// search query.
-///
-/// It subscribes once to the DAO stream and never re-reads. Filtering, folder
-/// grouping and search are derived in memory from that one list, so a bookmark
-/// saved in the sheet — or quietly enriched a second later by the metadata fetch —
-/// refreshes the list with no reload event anywhere.
-///
-/// Events:
-/// 1) [WatchBookmarksEvent] — subscribe to bookmarks and folders. Fired once.
-/// 2) [FoldersUpdatedEvent] — a folder was added, renamed or removed.
-/// 3) [FilterBookmarksEvent] — source type and folder narrowing.
-/// 4) [SearchBookmarksEvent] — in-module search (Requirement 6.3).
-/// 5) [SaveBookmarkEvent] / [DeleteBookmarkEvent] — the sheet and the swipe.
-/// 6) [SaveFolderEvent] / [DeleteFolderEvent] — folder management.
+/// It subscribes once to the DAO stream and never re-reads: filtering, folder
+/// grouping and search (Requirement 6.3) are derived in memory from that one
+/// list, so a save — or a later metadata enrich — refreshes the list with no
+/// reload event anywhere.
 class BookmarksBloc extends Bloc<BookmarksEvent, BookmarksState> {
   BookmarksBloc({required this.repository}) : super(const BookmarksState()) {
     on<WatchBookmarksEvent>(_onWatchBookmarksEvent);
@@ -41,13 +30,10 @@ class BookmarksBloc extends Bloc<BookmarksEvent, BookmarksState> {
 
   final BookmarksRepository repository;
 
-  /// The folders subscription.
-  ///
-  /// `emit.forEach` can hold only one stream open for the life of a handler, and
-  /// this module has two that never close. The bookmarks take it; the folders are
-  /// subscribed separately and re-enter the bloc as [FoldersUpdatedEvent], so their
-  /// emission still goes through a handler rather than round an emitter that has
-  /// since completed. (Same shape as [FinanceBloc]'s accounts stream.)
+  /// The folders subscription. `emit.forEach` can hold only one stream per
+  /// handler, which the bookmarks take; folders are subscribed separately and
+  /// re-enter as [FoldersUpdatedEvent] rather than emitting round a completed
+  /// emitter.
   StreamSubscription<List<Folder>>? _folders;
 
   FutureOr<void> _onWatchBookmarksEvent(
@@ -110,17 +96,11 @@ class BookmarksBloc extends Bloc<BookmarksEvent, BookmarksState> {
     emit(state.copyWith(query: event.query));
   }
 
-  /// [_onSaveBookmarkEvent] saves a bookmark and *then* goes looking for its title.
+  /// [_onSaveBookmarkEvent] saves locally, then enriches over the network.
   ///
-  /// The two steps are deliberate. The save is local and instant, so the bookmark is
-  /// on screen before this handler's first `await` returns — which is what makes
-  /// saving a link work identically offline. The enrich that follows is a network
-  /// call whose failure is not an error: on a device with no connection it simply
-  /// does nothing, and the bookmark keeps the title and thumbnail derived from its
-  /// URL. Nothing the user did has failed, so nothing is reported.
-  ///
-  /// Only on create. Re-fetching on every edit would let a page's title overwrite
-  /// the one the user just typed.
+  /// The enrich is best-effort and its failure is never reported: offline, the
+  /// bookmark keeps the title and thumbnail derived from its URL. It runs only on
+  /// create — re-fetching on edit would overwrite the title the user just typed.
   FutureOr<void> _onSaveBookmarkEvent(
     SaveBookmarkEvent event,
     Emitter<BookmarksState> emit,
@@ -142,8 +122,7 @@ class BookmarksBloc extends Bloc<BookmarksEvent, BookmarksState> {
       final saved = response.data;
       if (saved is! Bookmark) return;
 
-      // Not awaited into an error path: the stream delivers the enriched row if it
-      // lands, and says nothing if it does not.
+      // Failure is not surfaced: the stream delivers the enriched row if it lands.
       await repository.enrich(saved.id);
     } on Exception {
       emit(state.copyWith(error: 'Could not save the bookmark.'));
@@ -155,8 +134,7 @@ class BookmarksBloc extends Bloc<BookmarksEvent, BookmarksState> {
     Emitter<BookmarksState> emit,
   ) async {
     try {
-      // No isLoading: the stream returns the updated list within milliseconds, and
-      // a spinner over the whole list for a local delete would flicker.
+      // No isLoading: a spinner over the list for a local delete would flicker.
       final response = await repository.delete(event.id);
 
       emit(
@@ -193,8 +171,8 @@ class BookmarksBloc extends Bloc<BookmarksEvent, BookmarksState> {
     try {
       final response = await repository.deleteFolder(event.id);
 
-      // The filter may have been pointing at the folder that just went away, which
-      // would leave the list empty and no way to see anything again.
+      // Clear the filter if it pointed at the deleted folder, or the list is stuck
+      // empty with no way back.
       emit(
         response.success
             ? state.copyWith(

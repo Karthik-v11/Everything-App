@@ -1,67 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  This month's spending (Requirement 13).
+  This month's spending (Requirement 13), at 2x1.
 
   Both strings arrive pre-formatted from Dart. There is no NumberFormat here on
   purpose — see FinanceWidgetProvider.
+
+  Two cells of width and one of height is roughly 140x60dp, which is a row and not
+  a card: caption over amount on the left, the add button on the right. The
+  "updated at" footer the taller version carried is gone rather than shrunk —
+  there is no line of room for it, and the amount is what the widget is for. It is
+  still published, and the tasks widget still shows it.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:background="@drawable/widget_background"
-    android:padding="16dp">
+    android:padding="12dp"
+    android:baselineAligned="false"
+    android:gravity="center_vertical">
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:layout_weight="1"
+        android:orientation="vertical">
 
         <TextView
             android:id="@+id/widget_caption"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:maxLines="1"
             android:ellipsize="end"
             android:textColor="@color/widget_text_dim"
-            android:textSize="12sp" />
+            android:textSize="11sp" />
 
         <TextView
-            android:id="@+id/widget_add"
-            android:layout_width="wrap_content"
+            android:id="@+id/widget_amount"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="4dp"
-            android:background="@drawable/widget_pill"
-            android:text="@string/widget_add"
-            android:contentDescription="@string/widget_add_expense"
-            android:textColor="@color/widget_accent"
-            android:textSize="15sp" />
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/widget_text"
+            android:textSize="22sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <TextView
-        android:id="@+id/widget_amount"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="6dp"
-        android:gravity="start|center_vertical"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textColor="@color/widget_text"
-        android:textSize="28sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/widget_updated"
+        android:id="@+id/widget_add"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="end"
-        android:textColor="@color/widget_text_dim"
-        android:textSize="10sp" />
+        android:layout_marginStart="8dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="4dp"
+        android:background="@drawable/widget_pill"
+        android:text="@string/widget_add"
+        android:contentDescription="@string/widget_add_expense"
+        android:textColor="@color/widget_accent"
+        android:textSize="15sp" />
 </LinearLayout>

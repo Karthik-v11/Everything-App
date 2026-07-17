@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker draws for the spending widget (previewLayout, API 31+).
+
+  A copy of widget_finance with the published strings replaced by sample ones and
+  the @ids dropped. It duplicates the layout rather than reusing it because the
+  picker binds no data: pointing previewLayout at the real layout previews as
+  empty boxes, which is what the picker showed before this existed. The cost is
+  that a change to widget_finance must be made here too — kept side by side in
+  this directory for that reason.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="@drawable/widget_background"
+    android:padding="12dp"
+    android:baselineAligned="false"
+    android:gravity="center_vertical">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="@string/widget_preview_spent_caption"
+            android:textColor="@color/widget_text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="@string/widget_preview_spent_amount"
+            android:textColor="@color/widget_text"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="4dp"
+        android:background="@drawable/widget_pill"
+        android:text="@string/widget_add"
+        android:contentDescription="@string/widget_add_expense"
+        android:textColor="@color/widget_accent"
+        android:textSize="15sp" />
+</LinearLayout>
