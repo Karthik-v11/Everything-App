@@ -72,8 +72,7 @@ class NotificationService {
 
     try {
       tz.initializeTimeZones();
-      final zone = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(zone.identifier));
+      tz.setLocalLocation(await _localLocation());
 
       await plugin.initialize(
         settings: const InitializationSettings(
@@ -109,6 +108,23 @@ class NotificationService {
         statusCode: 500,
         message: 'Error: could not set up notifications.',
       );
+    }
+  }
+
+  /// [_localLocation] is the device's IANA zone, falling back to UTC.
+  ///
+  /// A device can report a zone the tz database has no entry for — a raw
+  /// `GMT+05:30` offset rather than `Asia/Kolkata` — and `getLocation` throws on
+  /// it. That throw used to fail [initialize], and a failed initialize stops
+  /// [SettingsBloc] arming the schedule at all, so an unrecognised zone silenced
+  /// every reminder. Falling back costs the DST correction, not the
+  /// notifications.
+  Future<tz.Location> _localLocation() async {
+    try {
+      final zone = await FlutterTimezone.getLocalTimezone();
+      return tz.getLocation(zone.identifier);
+    } on Exception {
+      return tz.UTC;
     }
   }
 

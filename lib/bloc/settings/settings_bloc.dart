@@ -58,10 +58,7 @@ class SettingsBloc extends HydratedBloc<SettingsEvent, SettingsState> {
   ) async {
     try {
       final initialized = await repository.initialize();
-      if (!initialized.success) {
-        emit(state.copyWith(error: initialized.message));
-        return;
-      }
+      if (!initialized.success) emit(state.copyWith(error: initialized.message));
 
       await _refreshPermissions(emit);
 
@@ -69,7 +66,12 @@ class SettingsBloc extends HydratedBloc<SettingsEvent, SettingsState> {
       // schedule with the user's own choices — TasksBloc schedules nothing until
       // it hears from here, so a launch cannot briefly arm notifications the user
       // had switched off.
-      _publish(state.notifications);
+      if (initialized.success) _publish(state.notifications);
+
+      // Unconditional: only the reminder schedule needs the notification plugin.
+      // Returning on a failed initialize left HomeWidgetBloc's `isEnabled` null
+      // for the whole session, so the home screen published nothing for a reason
+      // that had nothing to do with it.
       _publishModules();
 
       await _readAppInfo(emit);
