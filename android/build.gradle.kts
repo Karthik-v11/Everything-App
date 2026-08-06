@@ -5,16 +5,14 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
-rootProject.layout.buildDirectory.value(newBuildDir)
-
+// Flutter expects Android artifacts under the project root `build/` directory.
+// Keeping the module outputs inside `android/app/build/` can leave the Flutter
+// tool looking in the wrong place after Gradle succeeds.
+rootProject.buildDir = java.io.File(rootProject.projectDir, "../build")
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    project.buildDir = java.io.File(rootProject.buildDir, project.name)
 }
+
 // `receive_sharing_intent` 1.9.0 hardcodes `compileSdk 37`, which AGP resolves to
 // the platform hash `android-37`. That platform does not exist and cannot be
 // installed: Google ships `android-37.0` and `android-37.1`, and there is no bare

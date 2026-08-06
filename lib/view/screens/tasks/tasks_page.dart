@@ -224,20 +224,37 @@ class _TasksPageState extends State<TasksPage> {
               Expanded(
                 // Projects are read here rather than in the row so that a change
                 // to the project list rebuilds the list once, not once per card.
-                child: BlocBuilder<ProjectsBloc, ProjectsState>(
-                  buildWhen: (previous, current) =>
-                      previous.projects != current.projects,
-                  builder: (context, projectsState) => _TaskList(
-                    state: state,
-                    items: _items,
-                    projects: {
-                      for (final project in projectsState.projects)
-                        project.id: project,
-                    },
-                    scrollController: _scrollController,
-                    positionsListener: _positionsListener,
-                    onUserScroll: _onUserScroll,
-                  ),
+                child: Builder(
+                  builder: (context) {
+                    final projectsBloc = context.read<ProjectsBloc?>();
+
+                    if (projectsBloc == null) {
+                      return _TaskList(
+                        state: state,
+                        items: _items,
+                        projects: const <String, Project>{},
+                        scrollController: _scrollController,
+                        positionsListener: _positionsListener,
+                        onUserScroll: _onUserScroll,
+                      );
+                    }
+
+                    return BlocBuilder<ProjectsBloc, ProjectsState>(
+                      buildWhen: (previous, current) =>
+                          previous.projects != current.projects,
+                      builder: (context, projectsState) => _TaskList(
+                        state: state,
+                        items: _items,
+                        projects: {
+                          for (final project in projectsState.projects)
+                            project.id: project,
+                        },
+                        scrollController: _scrollController,
+                        positionsListener: _positionsListener,
+                        onUserScroll: _onUserScroll,
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
