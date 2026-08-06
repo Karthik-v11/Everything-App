@@ -30,6 +30,11 @@ const String kCurrentWeatherPath = '/weather';
 const String kForecastPath = '/forecast';
 const String kTopHeadlinesPath = '/top-headlines';
 
+/// The search endpoint. Reaches every publisher NewsAPI indexes rather than the
+/// ~78 curated ids `/top-headlines` accepts as `sources`, which is the only way
+/// to get live Indian coverage — see [NewsCategory].
+const String kEverythingPath = '/everything';
+
 // ── Storage keys ─────────────────────────────────────────────────────────────
 
 /// [kDatabaseKey] is the secure-storage key holding the 256-bit SQLCipher key.

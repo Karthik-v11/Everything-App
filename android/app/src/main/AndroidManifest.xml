@@ -152,6 +152,17 @@
                 android:resource="@xml/widget_today_tasks_info" />
         </receiver>
 
+        <!-- Fills the tasks widget's scrolling list.
+
+             BIND_REMOTEVIEWS is what stops any other app binding to this
+             service; the launcher holds the permission, so it is the only thing
+             that can. Without this declaration the ListView binds to nothing and
+             the widget draws its empty state forever, with no error anywhere. -->
+        <service
+            android:name=".TodayTasksWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <receiver
             android:name=".FinanceWidgetProvider"
             android:exported="false"

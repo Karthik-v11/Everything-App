@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The notification status-bar icon is named as a *string* from Dart
+  (`AndroidInitializationSettings('@drawable/ic_stat_everything')`) and resolved
+  at runtime with `Resources.getIdentifier`, so nothing in Java, Kotlin or XML
+  references it. The release build's `shrinkResources` therefore deleted it:
+  every other app drawable survives because the widget providers name them as
+  `R.drawable.*`.
+
+  A missing icon is not a cosmetic failure. `FlutterLocalNotificationsPlugin`
+  validates the default icon inside `initialize()` and returns the
+  INVALID_ICON error when it resolves to 0 — which fails
+  `NotificationService.initialize()`, which stops `SettingsBloc` calling
+  `_publish`, so *nothing* is ever scheduled. Reminders, deadlines and both
+  digests were silent in release builds only, which is why it looked like an
+  "app is closed" problem.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_everything" />

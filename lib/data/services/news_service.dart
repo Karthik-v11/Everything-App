@@ -37,10 +37,13 @@ class NewsService {
     }
 
     try {
+      // The path is the category's, not a constant: the India tab is a
+      // `/everything` search because NewsAPI has no live Indian source to name
+      // on `/top-headlines`. See [NewsCategory].
       final response = await dio.get<Map<String, dynamic>>(
-        kTopHeadlinesPath,
+        category.path,
         queryParameters: <String, String>{
-          ...category.query,
+          ...category.parameters,
           'apiKey': kNewsAPIKey,
           'pageSize': '$kNewsPageSize',
         },

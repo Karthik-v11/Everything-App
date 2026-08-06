@@ -1,25 +1,89 @@
 import 'package:equatable/equatable.dart';
+import 'package:everything_app/core/utils/constants.dart';
 
 /// [NewsCategory] is one tab of the Dashboard's news section (Requirement 3.9).
 ///
-/// [query] is what the News_Service is asked for. NewsAPI's top-headlines
-/// endpoint has no "world" category and forbids mixing `sources` with
-/// `country`/`category`, so World is expressed as a set of international sources
-/// while every other tab is a category of the local feed. All is that same feed
-/// with no category at all, which is what makes it a mix rather than a repeat of
-/// India's general bucket.
+/// Every tab names **sources**, not a country. NewsAPI still documents
+/// `country=in` on `/top-headlines` and still answers 200 for it — with
+/// `totalResults: 0`. That is why World was the only tab with headlines in it:
+/// World already named sources, and the other five were asking for a country
+/// feed that has nothing behind it.
+///
+/// `sources` cannot be combined with `country` or `category` — NewsAPI rejects
+/// that with `parametersIncompatible` — so a tab is now exactly the publishers
+/// listed here.
+///
+/// **A source id that returns articles is not a source id that works.** NewsAPI
+/// keeps serving frozen caches for publishers it has stopped ingesting, with a
+/// perfectly healthy `status: ok`: `the-hindu` last published into it in July
+/// 2021, `espn-cric-info` in April 2020, `techcrunch` in May 2024. Nothing in a
+/// response says so. Anything added to [sourceIds] has to be checked for
+/// *freshness*, not for a non-zero count — see the note on [india].
 enum NewsCategory {
-  all('All', {'country': 'in'}),
-  india('India', {'country': 'in', 'category': 'general'}),
-  world('World', {'sources': 'bbc-news,al-jazeera-english,associated-press'}),
-  technology('Technology', {'country': 'in', 'category': 'technology'}),
-  business('Business', {'country': 'in', 'category': 'business'}),
-  sports('Sports', {'country': 'in', 'category': 'sports'});
+  /// Deliberately spans the other tabs' territory — wire, tech, business, sport —
+  /// rather than being a sixth general feed, so the default tab is a mix.
+  all('All', sourceIds: [
+    'associated-press',
+    'bbc-news',
+    'the-verge',
+    'bloomberg',
+    'bbc-sport',
+  ]),
 
-  const NewsCategory(this.label, this.query);
+  /// The one tab that cannot be sources: NewsAPI has **no live Indian
+  /// publisher**. `the-hindu` and `the-times-of-india` are frozen in 2021, and
+  /// every `google-news-*` feed returns articles whose title is the literal
+  /// string "Google News". `/everything` indexes far more publishers than the ~78
+  /// `sources` accepts, and reaches the Indian press through the search index
+  /// instead.
+  india('India', query: 'India'),
+
+  world('World', sourceIds: [
+    'bbc-news',
+    'al-jazeera-english',
+    'associated-press',
+  ]),
+
+  technology('Technology', sourceIds: ['the-verge', 'wired', 'techradar']),
+
+  business('Business', sourceIds: [
+    'bloomberg',
+    'the-wall-street-journal',
+    'financial-post',
+  ]),
+
+  sports('Sports', sourceIds: [
+    'bbc-sport',
+    'espn',
+    'fox-sports',
+    'the-sport-bible',
+  ]);
+
+  const NewsCategory(this.label, {this.sourceIds = const [], this.query = ''});
 
   final String label;
-  final Map<String, String> query;
+
+  /// NewsAPI source ids, as listed by `/v2/sources`. Empty for a [query] tab.
+  /// The API caps the list at 20; none of these come close.
+  final List<String> sourceIds;
+
+  /// A `/everything` search term. Empty for a [sourceIds] tab.
+  final String query;
+
+  /// Which endpoint answers this tab. `/everything` has no `sources`-free
+  /// equivalent of a headline feed and `/top-headlines` cannot search, so the
+  /// two tab kinds are two endpoints rather than one with an extra parameter.
+  String get path => query.isEmpty ? kTopHeadlinesPath : kEverythingPath;
+
+  /// The tab's parameters, minus the key and page size the service adds.
+  ///
+  /// `/everything` defaults to relevance, which on a standing query means the
+  /// same articles stay on top for days — `publishedAt` is what makes the tab a
+  /// news feed rather than a search result. `language` is there because the query
+  /// is a plain word that matches in every language NewsAPI indexes.
+  Map<String, String> get parameters => query.isEmpty
+      ? {'sources': sourceIds.join(',')}
+      : {'q': query, 'language': 'en', 'sortBy': 'publishedAt'};
 
   static NewsCategory fromName(String? name) => NewsCategory.values.firstWhere(
         (value) => value.name == name,

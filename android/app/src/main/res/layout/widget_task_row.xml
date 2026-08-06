@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One row of the tasks widget's list, inflated per item by
+  TodayTasksRemoteViewsFactory.
+
+  Identical to the fixed rows this replaced, minus the row index in every id:
+  the factory binds one row at a time, so there is exactly one set of ids.
+
+  The root carries an id because a collection item cannot inherit the widget
+  root's click handler — it needs its own fill-in intent against the list's
+  pending intent template. See TodayTasksWidgetProvider.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/row_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="5dp"
+    android:paddingBottom="5dp">
+
+    <ImageView
+        android:id="@+id/row_marker"
+        android:layout_width="14dp"
+        android:layout_height="14dp"
+        android:src="@drawable/widget_check_open"
+        android:contentDescription="@string/widget_task_status" />
+
+    <TextView
+        android:id="@+id/row_title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textColor="@color/widget_text"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/row_due"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:maxLines="1"
+        android:textColor="@color/widget_text_dim"
+        android:textSize="11sp" />
+</LinearLayout>

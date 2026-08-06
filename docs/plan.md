@@ -898,7 +898,12 @@ share extension's shipped `Info.plist`, the `everything` URL scheme is registere
 manifest carries the `SEND`/`SEND_MULTIPLE` filters and all three `APPWIDGET_UPDATE` receivers. **What no
 build can check is in the device list below** — nothing here has been run on a phone.
 
-### Phase 13 — On-Device LLM ✅ built, ⚠️ not yet spiked on a device
+### Phase 13 — On-Device LLM ❌ withdrawn
+Not shipped. `flutter_gemma`, the `HF_TOKEN`, and the "AI model" storage line are all out of the
+app; `ModelBackedAiRepository` stayed and is backed by `GeminiRepository` instead. The rest of this
+section is kept as the record of why, for whoever revisits it.
+
+
 Swap the rule-based `AIRepositoryImpl` for a `flutter_gemma`-backed one. **No bloc, screen, or test
 changes** — that is the entire payoff of Phase 10's interface.
 

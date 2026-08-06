@@ -100,17 +100,6 @@ class StorageService {
         ),
       );
 
-      // The model is downloaded on demand and may not exist. Omitting the row
-      // would leave a requirement's named module missing, and "0 B" would imply
-      // an installed model that weighs nothing.
-      lines.add(
-        const StorageLine(
-          module: StorageModule.aiModel,
-          bytes: 0,
-          detail: 'Not installed',
-        ),
-      );
-
       if (perTable != null) {
         // The schema, drift's bookkeeping, and free pages a delete left behind.
         // Clamped: a just-vacuumed database can measure smaller than the sum of

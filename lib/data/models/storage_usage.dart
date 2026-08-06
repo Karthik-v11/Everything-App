@@ -2,17 +2,20 @@ import 'package:equatable/equatable.dart';
 
 /// [StorageModule] is a line in the Storage Usage section (Requirement 25.4).
 ///
-/// The requirement names Tasks, Library, Finance and the AI model; [search],
-/// [backups] and [other] are here so the parts add up to the total. [other] is
-/// what is left — schema, free pages, drift's bookkeeping — rather than the
-/// difference being rounded into one of the named modules.
+/// The requirement names Tasks, Library and Finance; [search], [backups] and
+/// [other] are here so the parts add up to the total. [other] is what is left —
+/// schema, free pages, drift's bookkeeping — rather than the difference being
+/// rounded into one of the named modules.
+///
+/// There is no AI model line: the assistant's prose runs in the cloud
+/// (`GeminiService`) and its parsers are rule-based, so nothing about it
+/// occupies the device.
 enum StorageModule {
   tasks,
   library,
   finance,
   search,
   backups,
-  aiModel,
   other;
 
   String get label => switch (this) {
@@ -21,7 +24,6 @@ enum StorageModule {
         StorageModule.finance => 'Finance',
         StorageModule.search => 'Search index',
         StorageModule.backups => 'Backups',
-        StorageModule.aiModel => 'AI model',
         StorageModule.other => 'Other',
       };
 }
@@ -39,11 +41,11 @@ class StorageLine extends Equatable {
   final int bytes;
 
   /// How many rows the module holds, where that is a meaningful thing to say.
-  /// Null for the ones it is not — the AI model is not a count of anything.
+  /// Null for the ones it is not — the search index is not a count of anything.
   final int? itemCount;
 
-  /// A short qualifier, used where a size alone would mislead — "Not installed"
-  /// against an AI model that is a rule-based parser occupying nothing.
+  /// A short qualifier, used where a size alone would mislead — "No backups yet"
+  /// against a backups line reading 0 B.
   final String detail;
 
   @override
